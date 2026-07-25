@@ -1,0 +1,155 @@
+{
+  "theme_strategy": "Swiss Culinary Brutalism - Merging High-Contrast Operations with Organic Restaurant Tones. Light mode preferred for POS/Kitchen visibility, with dense data.",
+  "typography": {
+    "headings": {
+      "font": "Cabinet Grotesk",
+      "weights": ["Medium", "Bold", "Black"],
+      "usage": "Use tight letter spacing (tracking-tighter) for massive dashboard stats and section headers. Never use Inter for headings."
+    },
+    "body": {
+      "font": "IBM Plex Sans",
+      "weights": ["Regular", "Medium"],
+      "usage": "Clean legibility for tables, logs, and form inputs."
+    },
+    "data_and_numbers": {
+      "font": "IBM Plex Mono",
+      "weights": ["Medium", "SemiBold"],
+      "usage": "CRITICAL: Use for all prices (€), stock quantities, clock-in times, and geolocation coords. Tabular lining ensures numbers align perfectly in lists."
+    },
+    "scales": {
+      "h1": "text-4xl sm:text-5xl tracking-tighter leading-none",
+      "h2": "text-2xl sm:text-3xl tracking-tight leading-tight",
+      "metric": "text-5xl sm:text-6xl font-black tracking-tighter",
+      "body": "text-base leading-relaxed",
+      "labels": "text-xs uppercase tracking-[0.2em] font-bold text-muted-foreground"
+    }
+  },
+  "colors": {
+    "archetype": "Organic & Earthy merged with High-Contrast Swiss",
+    "palette": {
+      "background": {
+        "light": "#F6F5F2",
+        "dark": "#1A1C19"
+      },
+      "foreground": {
+        "light": "#1A1C19",
+        "dark": "#F6F5F2"
+      },
+      "primary": {
+        "DEFAULT": "#2D4A36",
+        "foreground": "#F6F5F2",
+        "description": "Deep Forest Green for primary actions (Clock-in, Save)"
+      },
+      "secondary": {
+        "DEFAULT": "#E5E3DB",
+        "foreground": "#1A1C19",
+        "description": "Warm sand/stone for secondary cards and inactive states"
+      },
+      "destructive": {
+        "DEFAULT": "#C54B36",
+        "foreground": "#FFFFFF",
+        "description": "Terracotta/Brick Red for low stock, clock-out, delete actions"
+      },
+      "accent": {
+        "DEFAULT": "#D9933B",
+        "foreground": "#1A1C19",
+        "description": "Ochre/Mustard for pending statuses or consumption alerts"
+      },
+      "border": "#D1CFC7",
+      "ring": "#2D4A36"
+    }
+  },
+  "visual_enhancers": {
+    "surfaces": "Grid Borders (The 'Technical' Look). Expose the skeleton for this POS system.",
+    "cards": "border-collapse style. Flat backgrounds, 1px subtle borders (border-border), NO shadows. Sharp edges (radius: 0 or max 4px).",
+    "headers": "Solid background with a hard bottom border. If content scrolls under, use Crystal Glass (backdrop-blur-xl bg-background/80 saturate-150 border-b border-border).",
+    "textures": "Subtle noise overlay on the main background to remove digital flatness, feeling more like a printed receipt or menu."
+  },
+  "grids": {
+    "strategy": "MODE B: High Density Grid (For Dashboards / Analytics).",
+    "desktop": "grid-cols-4 or grid-cols-12 for deep operational views.",
+    "gap": "gap-1 (to create 1px border grid lines) or gap-4 for standard bento.",
+    "spans": {
+      "kpi": "col-span-1 (Total Sales, Active Staff)",
+      "chart": "col-span-3 (Sales/Consumption trend)",
+      "list": "col-span-1 row-span-2 (Live orders, Low stock alerts)"
+    }
+  },
+  "layouts": {
+    "navigation": "Collapsible left sidebar for back-office (Staff, Stock, Faturação, Reports). Include user profile and quick 'Picagem de Ponto' button.",
+    "dashboard_header": "Store selector, current date/time (mono font), and global search.",
+    "main_content": "Generous internal padding (p-8) within the main wrapper. Mobile-first responsive.",
+    "tables": "Dense rows, left-aligned text, right-aligned numbers. Highlight low stock rows with light terracotta backgrounds."
+  },
+  "component_name": {
+    "Card": "Use raw div with strict borders for bento grid, or customize Shadcn Card to be radius-none shadow-none border-border.",
+    "Button": "Sharp corners. Hover state must translate-y-[-1px] and add a sharp shadow.",
+    "Input/Select": "Shadcn. Radius-none, focus-visible:ring-primary. Use for staff consumption entry.",
+    "Badge": "Use for stock status ('Baixo', 'Esgotado', 'OK') and Staff Role.",
+    "Dialog": "For 'Adicionar Funcionário' or 'Registar Consumo'."
+  },
+  "motion": {
+    "hover": "translate-y-[-1px] with increased border opacity.",
+    "click": "scale-[0.98] active state.",
+    "page_load": "Staggered fade-in-up for bento grid items.",
+    "clock_in": "Use a meaningful micro-interaction for geolocated clock-in (e.g., a radar sweep animation turning green upon validation)."
+  },
+  "accessibility": {
+    "contrast": "APCA standard compliant. Dark green and Terracotta on bone-white have excellent contrast.",
+    "focus": "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+    "data_testid": "MANDATORY for all interactive elements (e.g., data-testid='btn-clock-in', data-testid='input-stock-qty')."
+  },
+  "media": {
+    "icons": "Phosphor Icons (@phosphor-icons/react) for dense, professional UI.",
+    "maps": "react-map-gl (Mapbox) or simple SVG radar animation for Geolocation validation."
+  },
+  "3d_libraries": {
+    "recommendation": "Recharts",
+    "usage": "Use Recharts for daily sales and staff consumption trends."
+  },
+  "image_urls": {
+    "staff_portraits": {
+      "category": "Avatar / Gestão de Staff",
+      "description": "Portraits of chefs and restaurant staff.",
+      "urls": [
+        "https://images.pexels.com/photos/36430160/pexels-photo-36430160.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "https://images.pexels.com/photos/23830927/pexels-photo-23830927.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      ]
+    },
+    "restaurant_interior": {
+      "category": "Login Background / Dashboard Hero",
+      "description": "Modern European restaurant interior for brand feel.",
+      "urls": [
+        "https://images.pexels.com/photos/36092422/pexels-photo-36092422.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "https://images.pexels.com/photos/34368950/pexels-photo-34368950.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      ]
+    }
+  },
+  "component_path": "/app/frontend/src/components/ui",
+  "instructions_to_main_agent": [
+    "Use Portuguese (PT) for all text (e.g., 'Controlo de Stock', 'Picagem de Ponto', 'Faturação').",
+    "Ensure prices use Euro (€) formatting (e.g., '12,50 €').",
+    "Customize tailwind.config.js to include the custom color palette (Bone White, Deep Forest Green, Terracotta).",
+    "Set --radius to 0 in index.css for sharp, brutalist POS UI.",
+    "Implement a Map/Radar UI for the 'Picagem de Ponto' (Clock In) feature to visualize the geolocation radius.",
+    "DO NOT use generic centered layouts. Align content left, align numbers right.",
+    "Use standard HTML inputs customized via Tailwind for forms to maintain the technical look, but use Shadcn for complex interactions (Dialog, Select, Tabs).",
+    "Ensure ALL buttons and inputs have `data-testid` attributes.",
+    "Ensure .js/.jsx extensions are used for React components, not .tsx."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur).",
+    "You MUST NOT apply universal transition. Eg: `transition: all`. Always add transitions for specific interactive elements like button, input excluding transforms.",
+    "You MUST NOT center align the app container, ie do not add `.App { text-align: center; }` in the css file. This disrupts the human natural reading flow of text.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style. (For this app, use SHARP buttons).",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Use `sonner` for toasts. Sonner components are located in `/app/frontend/src/components/ui/sonner.jsx`."
+  ]
+}
