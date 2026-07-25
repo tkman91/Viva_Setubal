@@ -1,0 +1,29 @@
+{
+  "summary": "Full backend + frontend smoke tested. 33/33 pytest backend tests PASS covering auth, dashboard KPIs, stock CRUD + movements (entrada/saida/insufficient/low_stock), settings (admin update + funcionario forbidden), picagem (far rejected 403, near entrada→saida toggle, entries scoped per role), staff mgmt (create funcionario with per-module permissions, update role/permissions, delete, cannot-delete-self, funcionario 403 on stock/staff/invoices/settings but 200 on GET products & timeclock), consumo (stock deduction + value calc), faturação (23% VAT calc 26/5.98/31.98, invoice number FT YYYY/NNNN, sync sets emitida+external_synced). Frontend UI: login flow, dashboard KPIs render, navigation to all 7 pages (nav-painel/picagem/stock/consumo/staff/faturacao/definicoes) works, settings form saves, all CTAs (btn-add-product, btn-add-staff, btn-add-consumo, btn-add-invoice, btn-punch) present, clock-status renders 'FORA DE SERVIÇO'.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Login page", "issues": ["Displays plaintext credentials 'admin@restaurante.pt / admin123' below the login button — convenient for demo but should be removed for production"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(Optional) Consider removing hardcoded demo credentials hint on Login screen for production hardening.",
+    "Note: the review_request referenced testid 'nav-settings' but actual implementation uses 'nav-definicoes' (route /definicoes). Aligned; no fix required, just informational."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 597 lines — consider splitting into routers (auth, staff, stock, timeclock, consumo, invoices, dashboard) if it continues to grow.",
+    "CORSMiddleware defaults to '*' with allow_credentials=True which browsers reject for credentialed requests. Not an issue currently (JWT via Authorization header, not cookies), but if cookie-based auth is added later, explicit origin list required.",
+    "haversine + settings coords are stored as loose dict fields; consider Pydantic validation on lat/lng range (-90..90 / -180..180) to prevent invalid data via PUT /api/settings.",
+    "clock_entries visibility: funcionario with 'picagem' perm but role=funcionario correctly sees only own entries; admin/gestor see all — logic is correct but tightly coupled, worth extracting into a scoped-query helper."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (33/33)", "frontend": "100% smoke"},
+  "test_credentials": "admin@restaurante.pt / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created ephemeral TEST_ prefixed products, one TEST funcionario user (deleted at end of run), settings row set to Lisbon coords (38.7223,-9.1393) radius 150m, 2 sample invoices.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite lives at /app/backend/tests/backend_test.py. It self-configures settings via session fixture, so picagem tests work regardless of xdist worker ordering. pytest.ini enforces -n 2 --dist loadscope. To re-run: `cd /app && python -m pytest backend/tests/backend_test.py -v`."
+}

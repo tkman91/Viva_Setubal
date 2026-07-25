@@ -1,54 +1,55 @@
-import { useEffect } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { Toaster } from "@/components/ui/sonner";
+import Layout from "@/components/Layout";
+import Login from "@/pages/Login";
+import Dashboard from "@/pages/Dashboard";
+import Stock from "@/pages/Stock";
+import Picagem from "@/pages/Picagem";
+import Staff from "@/pages/Staff";
+import Consumo from "@/pages/Consumo";
+import Faturacao from "@/pages/Faturacao";
+import Settings from "@/pages/Settings";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+function Protected({ children, module }) {
+  const { user, loading, can, isManager } = useAuth();
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">A carregar...</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (module) {
+    const managerOnly = ["staff", "faturacao", "settings"];
+    const allowed = managerOnly.includes(module) ? isManager || can(module) : can(module);
+    if (!allowed) return <Navigate to="/" replace />;
+  }
+  return <Layout>{children}</Layout>;
+}
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
+function AppRoutes() {
+  const { user, loading } = useAuth();
   return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
+    <Routes>
+      <Route path="/login" element={loading ? null : user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/" element={<Protected><Dashboard /></Protected>} />
+      <Route path="/picagem" element={<Protected module="picagem"><Picagem /></Protected>} />
+      <Route path="/stock" element={<Protected module="stock"><Stock /></Protected>} />
+      <Route path="/consumo" element={<Protected module="consumo"><Consumo /></Protected>} />
+      <Route path="/staff" element={<Protected module="staff"><Staff /></Protected>} />
+      <Route path="/faturacao" element={<Protected module="faturacao"><Faturacao /></Protected>} />
+      <Route path="/definicoes" element={<Protected module="settings"><Settings /></Protected>} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
-};
+}
 
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppRoutes />
+          <Toaster position="top-right" />
+        </BrowserRouter>
+      </AuthProvider>
     </div>
   );
 }

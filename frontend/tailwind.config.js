@@ -12,6 +12,11 @@ module.exports = {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)'
       },
+      fontFamily: {
+        display: ['Cabinet Grotesk', 'IBM Plex Sans', 'sans-serif'],
+        sans: ['IBM Plex Sans', 'sans-serif'],
+        mono: ['IBM Plex Mono', 'monospace'],
+      },
       colors: {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
