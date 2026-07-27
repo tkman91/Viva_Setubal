@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -31,6 +31,7 @@ api_router = APIRouter(prefix="/api")
 
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = "HS256"
+COOKIE_MAX_AGE = 7 * 24 * 3600
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("restaurante")
@@ -64,11 +65,14 @@ security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    request: Request,
     creds: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
-    if creds is None:
+    token = request.cookies.get("access_token")
+    if not token and creds is not None:
+        token = creds.credentials
+    if not token:
         raise HTTPException(status_code=401, detail="Não autenticado")
-    token = creds.credentials
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
@@ -101,6 +105,18 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") not in ("admin", "gestor"):
         raise HTTPException(status_code=403, detail="Apenas gestores")
     return user
+
+
+def set_auth_cookie(response: Response, token: str):
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=COOKIE_MAX_AGE,
+        path="/",
+    )
 
 
 def now_iso() -> str:
@@ -213,7 +229,7 @@ class InvoiceCreate(BaseModel):
 # Auth routes
 # ---------------------------------------------------------------------------
 @api_router.post("/auth/login")
-async def login(data: LoginInput):
+async def login(data: LoginInput, response: Response):
     email = data.email.strip().lower()
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(data.password, user["password_hash"]):
@@ -221,7 +237,14 @@ async def login(data: LoginInput):
     if not user.get("active", True):
         raise HTTPException(status_code=403, detail="Conta desativada")
     token = create_access_token(user["id"])
-    return {"token": token, "user": clean(dict(user))}
+    set_auth_cookie(response, token)
+    return {"user": clean(dict(user))}
+
+
+@api_router.post("/auth/logout")
+async def logout(response: Response, user: dict = Depends(get_current_user)):
+    response.delete_cookie("access_token", path="/")
+    return {"ok": True}
 
 
 @api_router.get("/auth/me")
@@ -527,7 +550,6 @@ async def dashboard(user: dict = Depends(get_current_user)):
         sum(c["value"] for c in consumptions if c["created_at"][:10] == today), 2
     )
     total_consumption = round(sum(c["value"] for c in consumptions), 2)
-    # consumo por dia (últimos 7 dias)
     by_day = {}
     for i in range(6, -1, -1):
         d = (datetime.now(timezone.utc).date() - timedelta(days=i)).isoformat()

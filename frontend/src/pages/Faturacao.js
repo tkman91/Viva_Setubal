@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api, { eur, formatApiError } from "@/lib/api";
 import { PageHeader } from "@/components/Layout";
 import { toast } from "sonner";
@@ -8,18 +8,19 @@ import { Plus, Trash2, Send, CheckCircle2 } from "lucide-react";
 const field = "w-full px-3 py-2 bg-background border border-input focus:outline-none focus:ring-2 focus:ring-primary text-sm";
 const btnPrimary = "px-4 py-2 bg-primary text-primary-foreground font-semibold text-sm hover:translate-y-[-1px] active:scale-[0.98] transition-transform duration-150";
 const emptyItem = { description: "", quantity: 1, unit_price: 0, vat_rate: 23 };
+const newLine = () => ({ uid: crypto.randomUUID(), ...emptyItem });
 
 export default function Faturacao() {
   const [invoices, setInvoices] = useState([]);
   const [open, setOpen] = useState(false);
   const [client, setClient] = useState({ client_name: "", client_nif: "" });
-  const [lines, setLines] = useState([{ ...emptyItem }]);
+  const [lines, setLines] = useState([newLine()]);
 
-  const load = () => api.get("/invoices").then((r) => setInvoices(r.data));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.get("/invoices").then((r) => setInvoices(r.data)), []);
+  useEffect(() => { load(); }, [load]);
 
   const updateLine = (idx, key, val) => setLines(lines.map((l, i) => (i === idx ? { ...l, [key]: val } : l)));
-  const addLine = () => setLines([...lines, { ...emptyItem }]);
+  const addLine = () => setLines([...lines, newLine()]);
   const removeLine = (idx) => setLines(lines.filter((_, i) => i !== idx));
 
   const totals = lines.reduce(
@@ -40,7 +41,7 @@ export default function Faturacao() {
         items: lines.map((l) => ({ description: l.description, quantity: Number(l.quantity), unit_price: Number(l.unit_price), vat_rate: Number(l.vat_rate) })),
       });
       toast.success("Fatura criada");
-      setOpen(false); setClient({ client_name: "", client_nif: "" }); setLines([{ ...emptyItem }]);
+      setOpen(false); setClient({ client_name: "", client_nif: "" }); setLines([newLine()]);
       load();
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail));
@@ -73,7 +74,7 @@ export default function Faturacao() {
               </div>
               <div className="label-tech">Linhas</div>
               {lines.map((l, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                <div key={l.uid} className="grid grid-cols-12 gap-2 items-center">
                   <input data-testid={`input-line-desc-${idx}`} required placeholder="Descrição" className={field + " col-span-5"} value={l.description} onChange={(e) => updateLine(idx, "description", e.target.value)} />
                   <input type="number" step="any" placeholder="Qtd" className={field + " col-span-2"} value={l.quantity} onChange={(e) => updateLine(idx, "quantity", e.target.value)} />
                   <input type="number" step="any" placeholder="Preço" className={field + " col-span-2"} value={l.unit_price} onChange={(e) => updateLine(idx, "unit_price", e.target.value)} />

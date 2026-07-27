@@ -24,11 +24,17 @@ function Protected({ children, module }) {
   return <Layout>{children}</Layout>;
 }
 
-function AppRoutes() {
+function LoginRoute() {
   const { user, loading } = useAuth();
+  if (loading) return null;
+  if (user) return <Navigate to="/" replace />;
+  return <Login />;
+}
+
+function AppRoutes() {
   return (
     <Routes>
-      <Route path="/login" element={loading ? null : user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/login" element={<LoginRoute />} />
       <Route path="/" element={<Protected><Dashboard /></Protected>} />
       <Route path="/picagem" element={<Protected module="picagem"><Picagem /></Protected>} />
       <Route path="/stock" element={<Protected module="stock"><Stock /></Protected>} />

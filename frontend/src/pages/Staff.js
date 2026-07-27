@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api, { eur, formatApiError } from "@/lib/api";
 import { PageHeader } from "@/components/Layout";
 import { useAuth } from "@/context/AuthContext";
@@ -26,8 +26,8 @@ export default function Staff() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
 
-  const load = () => api.get("/staff").then((r) => setStaff(r.data));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.get("/staff").then((r) => setStaff(r.data)), []);
+  useEffect(() => { load(); }, [load]);
 
   const openNew = () => { setEditing(null); setForm(empty); setOpen(true); };
   const openEdit = (s) => { setEditing(s); setForm({ ...s, password: "" }); setOpen(true); };

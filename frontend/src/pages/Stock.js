@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api, { eur, num, formatApiError } from "@/lib/api";
 import { PageHeader } from "@/components/Layout";
 import { toast } from "sonner";
@@ -21,8 +21,8 @@ export default function Stock() {
   const [form, setForm] = useState({ name: "", category: "Geral", unit: "un", quantity: 0, min_quantity: 0, cost_price: 0, sale_price: 0 });
   const [move, setMove] = useState({ type: "entrada", quantity: 1, note: "" });
 
-  const load = () => api.get("/products").then((r) => setProducts(r.data));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.get("/products").then((r) => setProducts(r.data)), []);
+  useEffect(() => { load(); }, [load]);
 
   const addProduct = async (e) => {
     e.preventDefault();

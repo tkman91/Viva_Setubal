@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api, { eur, num, formatApiError } from "@/lib/api";
 import { PageHeader } from "@/components/Layout";
 import { useAuth } from "@/context/AuthContext";
@@ -17,12 +17,12 @@ export default function Consumo() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ staff_id: "", product_id: "", quantity: 1, deduct_stock: true });
 
-  const load = () => {
+  const load = useCallback(() => {
     api.get("/consumption").then((r) => setItems(r.data));
     api.get("/products").then((r) => setProducts(r.data));
     if (isManager) api.get("/staff").then((r) => setStaff(r.data)).catch(() => {});
-  };
-  useEffect(() => { load(); }, []);
+  }, [isManager]);
+  useEffect(() => { load(); }, [load]);
 
   const submit = async (e) => {
     e.preventDefault();

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api, { formatApiError } from "@/lib/api";
 import { PageHeader } from "@/components/Layout";
 import { useAuth } from "@/context/AuthContext";
@@ -20,12 +20,12 @@ export default function Picagem() {
   const [locating, setLocating] = useState(false);
   const [geoState, setGeoState] = useState("idle"); // idle | ok | error
 
-  const load = () => {
+  const load = useCallback(() => {
     api.get("/timeclock/status").then((r) => setStatus(r.data));
     api.get("/timeclock/entries").then((r) => setEntries(r.data));
     api.get("/settings").then((r) => setSettings(r.data));
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const punch = () => {
     setLocating(true);
@@ -60,6 +60,12 @@ export default function Picagem() {
 
   const clockedIn = status?.clocked_in;
 
+  const renderCenterIcon = () => {
+    if (geoState === "ok") return <CheckCircle2 className="w-16 h-16 text-primary" />;
+    if (geoState === "error") return <XCircle className="w-16 h-16 text-destructive" />;
+    return <MapPin className={`w-14 h-14 ${clockedIn ? "text-destructive" : "text-primary"}`} />;
+  };
+
   return (
     <div>
       <PageHeader title="Picagem de Ponto" subtitle="Validação por geolocalização" />
@@ -81,9 +87,7 @@ export default function Picagem() {
                     style={{ background: "conic-gradient(from 0deg, transparent 0deg, hsl(var(--primary)/0.35) 60deg, transparent 90deg)" }} />
                 )}
                 <div className="absolute inset-0 flex items-center justify-center">
-                  {geoState === "ok" ? <CheckCircle2 className="w-16 h-16 text-primary" />
-                    : geoState === "error" ? <XCircle className="w-16 h-16 text-destructive" />
-                    : <MapPin className={`w-14 h-14 ${clockedIn ? "text-destructive" : "text-primary"}`} />}
+                  {renderCenterIcon()}
                 </div>
               </div>
 
