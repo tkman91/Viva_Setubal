@@ -25,3 +25,9 @@ test_reports/
 # Sistema
 .DS_Store
 Thumbs.db
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
