@@ -36,6 +36,8 @@ CORS_ORIGINS="http://localhost:3000"
 JWT_SECRET="$SECRET"
 ADMIN_EMAIL="admin@restaurante.pt"
 ADMIN_PASSWORD="admin123"
+COOKIE_SECURE="false"
+COOKIE_SAMESITE="lax"
 EOF
   echo "    .env criado."
 else

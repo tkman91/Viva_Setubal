@@ -65,8 +65,13 @@ CORS_ORIGINS="http://localhost:3000"
 JWT_SECRET="COLA_AQUI_UMA_CHAVE_ALEATORIA"
 ADMIN_EMAIL="admin@restaurante.pt"
 ADMIN_PASSWORD="admin123"
+COOKIE_SECURE="false"
+COOKIE_SAMESITE="lax"
 EOF
 ```
+> 🔑 **`COOKIE_SECURE="false"` + `COOKIE_SAMESITE="lax"` são essenciais em HTTP** (sem HTTPS).
+> Sem isto o browser recusa guardar o cookie de sessão e o login "não funciona".
+> Quando tiveres HTTPS/domínio, muda para `COOKIE_SECURE="true"` e `COOKIE_SAMESITE="none"`.
 Gera a chave JWT:
 ```bash
 python3 -c "import secrets; print(secrets.token_hex(32))"
@@ -143,3 +148,5 @@ sudo systemctl enable --now viva-backend
 | `error: externally-managed-environment` | `pip` global no Noble | criar e ativar um virtualenv |
 | `pip` falha em `emergentintegrations` | requirements.txt do Emergent | usar `requirements-selfhost.txt` |
 | `ERROR: [Errno 2] No such file or directory: 'install'` (no `yarn install`) | `yarn` falso do pacote **cmdtest** a mascarar o Yarn real | `sudo apt remove -y cmdtest yarn && sudo corepack enable && corepack prepare yarn@1.22.22 --activate && hash -r` |
+| Login não funciona (fica preso no ecrã de login em HTTP) | Cookie de sessão exige HTTPS (`Secure`/`SameSite=None`) | pôr `COOKIE_SECURE="false"` e `COOKIE_SAMESITE="lax"` no `backend/.env` e reiniciar o backend |
+| Login falha por rede / não chega ao backend | `REACT_APP_BACKEND_URL` errado para o browser que usas | usar o endereço que o **browser** alcança (ex.: `http://IP_DA_VM:8001`), não `localhost` se acederes de outra máquina; rebuild/reiniciar `yarn start` |
