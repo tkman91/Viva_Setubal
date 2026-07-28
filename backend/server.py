@@ -34,6 +34,10 @@ JWT_ALGORITHM = "HS256"
 COOKIE_MAX_AGE = 7 * 24 * 3600
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() == "true"
 COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "none").lower()
+if COOKIE_SAMESITE not in ("lax", "strict", "none"):
+    COOKIE_SAMESITE = "lax"
+if COOKIE_SAMESITE == "none":
+    COOKIE_SECURE = True  # browsers exigem Secure quando SameSite=None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("restaurante")
