@@ -57,25 +57,28 @@ pip install -r requirements-selfhost.txt
 > do ambiente Emergent (ex.: `emergentintegrations`) que não estão no PyPI e fazem o `pip install` falhar.
 
 ### 4. Criar o ficheiro `backend/.env` (não vem no git!)
+
+O bloco abaixo **gera automaticamente** a chave JWT e cria o `.env`:
 ```bash
-cat > .env <<'EOF'
+JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+cat > .env <<EOF
 MONGO_URL="mongodb://localhost:27017"
 DB_NAME="viva_setubal"
 CORS_ORIGINS="http://localhost:3000"
-JWT_SECRET="COLA_AQUI_UMA_CHAVE_ALEATORIA"
+JWT_SECRET="$JWT_SECRET"
 ADMIN_EMAIL="admin@restaurante.pt"
 ADMIN_PASSWORD="admin123"
 COOKIE_SECURE="false"
 COOKIE_SAMESITE="lax"
 EOF
 ```
-> 🔑 **`COOKIE_SECURE="false"` + `COOKIE_SAMESITE="lax"` são essenciais em HTTP** (sem HTTPS).
+> 🔑 Para gerar uma chave JWT avulsa (ex.: para trocar a existente):
+> ```bash
+> python3 -c "import secrets; print(secrets.token_hex(32))"
+> ```
+> ⚠️ **`COOKIE_SECURE="false"` + `COOKIE_SAMESITE="lax"` são essenciais em HTTP** (sem HTTPS).
 > Sem isto o browser recusa guardar o cookie de sessão e o login "não funciona".
 > Quando tiveres HTTPS/domínio, muda para `COOKIE_SECURE="true"` e `COOKIE_SAMESITE="none"`.
-Gera a chave JWT:
-```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
-```
 
 ### 5. Arrancar o backend
 ```bash
