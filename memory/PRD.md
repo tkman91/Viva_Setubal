@@ -20,7 +20,9 @@
 - Funcionário: pica ponto, regista/consulta o próprio consumo, acesso conforme permissões.
 
 ## Implementado (2026-07-25)
-- Auth local + seed admin (admin@restaurante.pt / admin123).
+- Auth local por **cookie httpOnly** (secure/samesite configuráveis por env — HTTPS Emergent, HTTP self-host) + seed admin.
+- **Modelo de permissões**: só `admin` tem tudo automaticamente; `gestor`/`funcionario` só têm o que o admin atribui por módulo. Gestão de staff e Definições = admin-only. `can_manage` dá visão de supervisão (ver todos os registos) a admin e a gestor com a permissão do módulo. Despromover de admin sem enviar permissões limpa as residuais.
+- **Registadora (POS)** (substituiu Faturação): mesas abertas; cada item adicionado desconta do stock, remover devolve; fechar conta regista venda (status paga). Dashboard mostra Vendas Hoje e Mesas Abertas.
 - Painel com KPIs (valor stock, produtos, staff, ativos agora, consumo hoje/total, stock baixo) + gráfico consumo 7 dias.
 - Controlo de Stock: CRUD produtos, movimentos entrada/saída, alertas de stock baixo.
 - Picagem de Ponto: geolocalização com validação de raio, radar animado, entrada/saída, histórico.

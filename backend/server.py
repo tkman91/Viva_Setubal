@@ -304,6 +304,8 @@ async def update_staff(staff_id: str, data: StaffUpdate, user: dict = Depends(re
         upd["password_hash"] = hash_password(upd.pop("password"))
     if upd.get("role") == "admin":
         upd["permissions"] = MODULES
+    elif upd.get("role") in ("gestor", "funcionario") and "permissions" not in upd and target.get("role") == "admin":
+        upd["permissions"] = []
     await db.users.update_one({"id": staff_id}, {"$set": upd})
     doc = await db.users.find_one({"id": staff_id}, {"_id": 0, "password_hash": 0})
     return doc
