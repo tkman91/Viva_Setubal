@@ -87,15 +87,24 @@ Deve devolver `{"user": {...}}`.
 
 ### 6. Frontend (React)
 ```bash
-# Node 20 + yarn
+# Node 20
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
-sudo npm install -g yarn
+
+# IMPORTANTE: remover o "yarn" falso do pacote cmdtest (senao da erro
+# "[Errno 2] No such file or directory: 'install'")
+sudo apt remove -y cmdtest yarn 2>/dev/null || true
+
+# Yarn real via Corepack (vem com o Node 20)
+sudo corepack enable
+corepack prepare yarn@1.22.22 --activate
+hash -r
+yarn --version        # deve imprimir 1.22.22
 
 cd ~/Viva_Setubal/frontend
 echo 'REACT_APP_BACKEND_URL=http://localhost:8001' > .env
 yarn install
-yarn start        # abre em http://localhost:3000
+yarn start            # abre em http://localhost:3000
 ```
 
 ---
@@ -133,3 +142,4 @@ sudo systemctl enable --now viva-backend
 | `ServerSelectionTimeoutError` | MongoDB não está a correr | `sudo systemctl start mongod` |
 | `error: externally-managed-environment` | `pip` global no Noble | criar e ativar um virtualenv |
 | `pip` falha em `emergentintegrations` | requirements.txt do Emergent | usar `requirements-selfhost.txt` |
+| `ERROR: [Errno 2] No such file or directory: 'install'` (no `yarn install`) | `yarn` falso do pacote **cmdtest** a mascarar o Yarn real | `sudo apt remove -y cmdtest yarn && sudo corepack enable && corepack prepare yarn@1.22.22 --activate && hash -r` |
