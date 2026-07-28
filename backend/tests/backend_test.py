@@ -87,7 +87,8 @@ class TestDashboard:
         assert r.status_code == 200
         d = r.json()
         for k in ["stock_value", "products_count", "staff_count", "active_now",
-                  "today_consumption", "trend", "low_stock", "low_stock_count"]:
+                  "today_consumption", "trend", "low_stock", "low_stock_count",
+                  "today_sales", "open_tables"]:
             assert k in d, f"missing key {k}"
         assert isinstance(d["trend"], list) and len(d["trend"]) == 7
 
@@ -253,12 +254,24 @@ class TestStaffAndPermissions:
         r = self._fs().get(f"{API}/staff")
         assert r.status_code == 403
 
-    def test_funcionario_forbidden_invoices(self):
-        r = self._fs().get(f"{API}/invoices")
+    def test_funcionario_forbidden_orders_list(self):
+        r = self._fs().get(f"{API}/orders")
         assert r.status_code == 403
 
-    def test_funcionario_forbidden_invoices_post(self):
-        r = self._fs().post(f"{API}/invoices", json={"client_name": "X", "items": []})
+    def test_funcionario_forbidden_orders_open(self):
+        r = self._fs().post(f"{API}/orders", json={"table_name": "M1"})
+        assert r.status_code == 403
+
+    def test_funcionario_forbidden_orders_add_item(self):
+        r = self._fs().post(f"{API}/orders/xxx/items", json={"product_id": "y", "quantity": 1})
+        assert r.status_code == 403
+
+    def test_funcionario_forbidden_orders_close(self):
+        r = self._fs().post(f"{API}/orders/xxx/close")
+        assert r.status_code == 403
+
+    def test_funcionario_forbidden_orders_cancel(self):
+        r = self._fs().delete(f"{API}/orders/xxx")
         assert r.status_code == 403
 
     def test_funcionario_forbidden_staff_post(self):
@@ -358,37 +371,122 @@ class TestConsumo:
 
 
 # ---------------------------------------------------------------------------
-# Faturacao
+# Registadora (Orders / Mesas)
 # ---------------------------------------------------------------------------
-class TestFaturacao:
-    _inv_id = None
+class TestRegistadora:
+    _prod_id = None
+    _prod_qty0 = 20
+    _order_id = None
+    _item_id = None
 
-    def test_create_invoice(self, admin_session):
+    def test_setup_product(self, admin_session):
+        r = admin_session.post(f"{API}/products", json={
+            "name": f"TEST_Reg_{uuid.uuid4().hex[:5]}",
+            "quantity": self._prod_qty0,
+            "sale_price": 5.0,
+            "cost_price": 1.0,
+            "min_quantity": 0,
+        })
+        assert r.status_code == 200
+        TestRegistadora._prod_id = r.json()["id"]
+
+    def test_open_table(self, admin_session):
+        r = admin_session.post(f"{API}/orders", json={"table_name": "TEST Mesa"})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["status"] == "aberta"
+        assert d["table_name"] == "TEST Mesa"
+        assert d["items"] == []
+        assert d["total"] == 0.0
+        TestRegistadora._order_id = d["id"]
+
+    def test_list_open_orders(self, admin_session):
+        r = admin_session.get(f"{API}/orders?status=aberta")
+        assert r.status_code == 200
+        ids = [o["id"] for o in r.json()]
+        assert TestRegistadora._order_id in ids
+
+    def test_add_item_deducts_stock(self, admin_session):
         r = admin_session.post(
-            f"{API}/invoices",
-            json={
-                "client_name": "TEST Cliente",
-                "client_nif": "123456789",
-                "items": [
-                    {"description": "Menu 1", "quantity": 2, "unit_price": 10.0, "vat_rate": 23.0},
-                    {"description": "Bebida", "quantity": 3, "unit_price": 2.0, "vat_rate": 23.0},
-                ],
-            },
+            f"{API}/orders/{TestRegistadora._order_id}/items",
+            json={"product_id": TestRegistadora._prod_id, "quantity": 3},
         )
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["subtotal"] == 26.0
-        assert d["vat_total"] == 5.98
-        assert d["total"] == 31.98
-        assert d["number"].startswith("FT ")
-        assert d["status"] == "rascunho"
-        assert d["external_synced"] is False
-        TestFaturacao._inv_id = d["id"]
+        assert d["item"]["line_total"] == 15.0
+        assert d["total"] == 15.0
+        TestRegistadora._item_id = d["item"]["id"]
+        # stock deducted
+        p = next(x for x in admin_session.get(f"{API}/products").json() if x["id"] == TestRegistadora._prod_id)
+        assert p["quantity"] == 17
 
-    def test_sync_invoice(self, admin_session):
-        r = admin_session.post(f"{API}/invoices/{TestFaturacao._inv_id}/sync")
+    def test_add_item_insufficient_stock(self, admin_session):
+        r = admin_session.post(
+            f"{API}/orders/{TestRegistadora._order_id}/items",
+            json={"product_id": TestRegistadora._prod_id, "quantity": 999999},
+        )
+        assert r.status_code == 400
+        assert "stock" in r.json()["detail"].lower()
+
+    def test_remove_item_returns_stock(self, admin_session):
+        r = admin_session.delete(
+            f"{API}/orders/{TestRegistadora._order_id}/items/{TestRegistadora._item_id}"
+        )
         assert r.status_code == 200
-        lst = admin_session.get(f"{API}/invoices").json()
-        inv = next(x for x in lst if x["id"] == TestFaturacao._inv_id)
-        assert inv["external_synced"] is True
-        assert inv["status"] == "emitida"
+        assert r.json()["total"] == 0.0
+        p = next(x for x in admin_session.get(f"{API}/products").json() if x["id"] == TestRegistadora._prod_id)
+        assert p["quantity"] == 20
+
+    def test_close_empty_order_400(self, admin_session):
+        r = admin_session.post(f"{API}/orders/{TestRegistadora._order_id}/close")
+        assert r.status_code == 400
+
+    def test_add_and_close(self, admin_session):
+        r = admin_session.post(
+            f"{API}/orders/{TestRegistadora._order_id}/items",
+            json={"product_id": TestRegistadora._prod_id, "quantity": 2},
+        )
+        assert r.status_code == 200
+        rc = admin_session.post(f"{API}/orders/{TestRegistadora._order_id}/close")
+        assert rc.status_code == 200
+        assert rc.json()["total"] == 10.0
+        # cannot add to closed
+        r2 = admin_session.post(
+            f"{API}/orders/{TestRegistadora._order_id}/items",
+            json={"product_id": TestRegistadora._prod_id, "quantity": 1},
+        )
+        assert r2.status_code == 400
+
+    def test_dashboard_reflects_sales_and_open_tables(self, admin_session):
+        # open another table (still open) to bump open_tables counter
+        o = admin_session.post(f"{API}/orders", json={"table_name": "TEST Mesa Open"}).json()
+        d = admin_session.get(f"{API}/dashboard").json()
+        assert "today_sales" in d
+        assert "open_tables" in d
+        assert d["today_sales"] >= 10.0
+        assert d["open_tables"] >= 1
+        # cancel it -> stock unchanged (no items) + open table removed
+        rc = admin_session.delete(f"{API}/orders/{o['id']}")
+        assert rc.status_code == 200
+
+    def test_cancel_open_returns_stock(self, admin_session):
+        # new order, add items, cancel -> stock restored fully
+        o = admin_session.post(f"{API}/orders", json={"table_name": "TEST Cancel"}).json()
+        admin_session.post(
+            f"{API}/orders/{o['id']}/items",
+            json={"product_id": TestRegistadora._prod_id, "quantity": 4},
+        )
+        # product qty currently 18 after previous close(2)
+        r = admin_session.delete(f"{API}/orders/{o['id']}")
+        assert r.status_code == 200
+        p = next(x for x in admin_session.get(f"{API}/products").json() if x["id"] == TestRegistadora._prod_id)
+        assert p["quantity"] == 18
+
+    def test_add_item_order_not_found(self, admin_session):
+        r = admin_session.post(f"{API}/orders/nonexistent/items",
+                               json={"product_id": TestRegistadora._prod_id, "quantity": 1})
+        assert r.status_code == 404
+
+    def test_invoices_endpoint_removed(self, admin_session):
+        r = admin_session.get(f"{API}/invoices")
+        assert r.status_code == 404

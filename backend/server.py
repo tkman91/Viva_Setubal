@@ -218,17 +218,13 @@ class SettingsInput(BaseModel):
     radius_m: float = 100.0
 
 
-class InvoiceItem(BaseModel):
-    description: str
+class OrderCreate(BaseModel):
+    table_name: str
+
+
+class OrderItemInput(BaseModel):
+    product_id: str
     quantity: float = 1.0
-    unit_price: float = 0.0
-    vat_rate: float = 23.0
-
-
-class InvoiceCreate(BaseModel):
-    client_name: str
-    client_nif: Optional[str] = ""
-    items: List[InvoiceItem]
 
 
 # ---------------------------------------------------------------------------
@@ -489,55 +485,112 @@ async def list_consumption(user: dict = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
-# Faturação (estrutura preparada)
+# Registadora / Mesas (cada item desconta stock automaticamente)
 # ---------------------------------------------------------------------------
-@api_router.get("/invoices")
-async def list_invoices(user: dict = Depends(require_permission("faturacao"))):
-    return await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(300)
+def _order_total(items):
+    return round(sum(i["line_total"] for i in items), 2)
 
 
-@api_router.post("/invoices")
-async def create_invoice(data: InvoiceCreate, user: dict = Depends(require_permission("faturacao"))):
-    subtotal = 0.0
-    vat_total = 0.0
-    items = []
-    for it in data.items:
-        line = round(it.quantity * it.unit_price, 2)
-        vat = round(line * it.vat_rate / 100, 2)
-        subtotal += line
-        vat_total += vat
-        items.append({**it.model_dump(), "line_total": line, "vat_amount": vat})
-    total = round(subtotal + vat_total, 2)
-    count = await db.invoices.count_documents({})
+@api_router.get("/orders")
+async def list_orders(status: Optional[str] = None, user: dict = Depends(require_permission("faturacao"))):
+    q = {}
+    if status:
+        q["status"] = status
+    return await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(300)
+
+
+@api_router.post("/orders")
+async def open_order(data: OrderCreate, user: dict = Depends(require_permission("faturacao"))):
     doc = {
         "id": str(uuid.uuid4()),
-        "number": f"FT {datetime.now(timezone.utc).year}/{count + 1:04d}",
-        "client_name": data.client_name,
-        "client_nif": data.client_nif,
-        "items": items,
-        "subtotal": round(subtotal, 2),
-        "vat_total": round(vat_total, 2),
-        "total": total,
-        "status": "rascunho",
-        "external_synced": False,
-        "created_by": user["name"],
+        "table_name": data.table_name,
+        "status": "aberta",
+        "items": [],
+        "total": 0.0,
+        "opened_by": user["name"],
         "created_at": now_iso(),
+        "closed_at": None,
     }
-    await db.invoices.insert_one(doc)
+    await db.orders.insert_one(doc)
     return clean(dict(doc))
 
 
-@api_router.post("/invoices/{invoice_id}/sync")
-async def sync_invoice(invoice_id: str, user: dict = Depends(require_permission("faturacao"))):
-    # Estrutura preparada para integração externa (InvoiceXpress/Moloni)
-    inv = await db.invoices.find_one({"id": invoice_id})
-    if not inv:
-        raise HTTPException(status_code=404, detail="Fatura não encontrada")
-    await db.invoices.update_one(
-        {"id": invoice_id},
-        {"$set": {"external_synced": True, "status": "emitida", "synced_at": now_iso()}},
+@api_router.post("/orders/{order_id}/items")
+async def add_order_item(order_id: str, data: OrderItemInput, user: dict = Depends(require_permission("faturacao"))):
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Mesa não encontrada")
+    if order["status"] != "aberta":
+        raise HTTPException(status_code=400, detail="Mesa já fechada")
+    product = await db.products.find_one({"id": data.product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+    new_qty = round(product["quantity"] - data.quantity, 3)
+    if new_qty < 0:
+        raise HTTPException(status_code=400, detail="Stock insuficiente")
+    await db.products.update_one({"id": data.product_id}, {"$set": {"quantity": new_qty}})
+    item = {
+        "id": str(uuid.uuid4()),
+        "product_id": data.product_id,
+        "product_name": product["name"],
+        "quantity": data.quantity,
+        "unit_price": product.get("sale_price", 0.0),
+        "line_total": round(product.get("sale_price", 0.0) * data.quantity, 2),
+    }
+    items = order["items"] + [item]
+    total = _order_total(items)
+    await db.orders.update_one({"id": order_id}, {"$set": {"items": items, "total": total}})
+    return {"item": item, "total": total}
+
+
+@api_router.delete("/orders/{order_id}/items/{item_id}")
+async def remove_order_item(order_id: str, item_id: str, user: dict = Depends(require_permission("faturacao"))):
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Mesa não encontrada")
+    if order["status"] != "aberta":
+        raise HTTPException(status_code=400, detail="Mesa já fechada")
+    item = next((i for i in order["items"] if i["id"] == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+    prod = await db.products.find_one({"id": item["product_id"]})
+    if prod:
+        await db.products.update_one(
+            {"id": item["product_id"]}, {"$set": {"quantity": round(prod["quantity"] + item["quantity"], 3)}}
+        )
+    items = [i for i in order["items"] if i["id"] != item_id]
+    total = _order_total(items)
+    await db.orders.update_one({"id": order_id}, {"$set": {"items": items, "total": total}})
+    return {"total": total}
+
+
+@api_router.post("/orders/{order_id}/close")
+async def close_order(order_id: str, user: dict = Depends(require_permission("faturacao"))):
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Mesa não encontrada")
+    if not order["items"]:
+        raise HTTPException(status_code=400, detail="Mesa vazia — adicione itens antes de fechar")
+    await db.orders.update_one(
+        {"id": order_id}, {"$set": {"status": "paga", "closed_at": now_iso()}}
     )
-    return {"ok": True, "message": "Fatura marcada como emitida (integração externa a ligar futuramente)"}
+    return {"ok": True, "total": order["total"]}
+
+
+@api_router.delete("/orders/{order_id}")
+async def cancel_order(order_id: str, user: dict = Depends(require_permission("faturacao"))):
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Mesa não encontrada")
+    if order["status"] == "aberta":
+        for it in order["items"]:
+            prod = await db.products.find_one({"id": it["product_id"]})
+            if prod:
+                await db.products.update_one(
+                    {"id": it["product_id"]}, {"$set": {"quantity": round(prod["quantity"] + it["quantity"], 3)}}
+                )
+    await db.orders.delete_one({"id": order_id})
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +609,11 @@ async def dashboard(user: dict = Depends(get_current_user)):
         sum(c["value"] for c in consumptions if c["created_at"][:10] == today), 2
     )
     total_consumption = round(sum(c["value"] for c in consumptions), 2)
+    orders_all = await db.orders.find({}, {"_id": 0}).to_list(2000)
+    today_sales = round(
+        sum(o["total"] for o in orders_all if o["status"] == "paga" and (o.get("closed_at") or "")[:10] == today), 2
+    )
+    open_tables = len([o for o in orders_all if o["status"] == "aberta"])
     by_day = {}
     for i in range(6, -1, -1):
         d = (datetime.now(timezone.utc).date() - timedelta(days=i)).isoformat()
@@ -574,6 +632,8 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "active_now": active_now,
         "today_consumption": today_consumption,
         "total_consumption": total_consumption,
+        "today_sales": today_sales,
+        "open_tables": open_tables,
         "trend": trend,
     }
 

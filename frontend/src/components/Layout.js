@@ -22,7 +22,7 @@ const NAV = [
   { to: "/stock", label: "Controlo de Stock", icon: Package, module: "stock" },
   { to: "/consumo", label: "Consumo Staff", icon: Coffee, module: "consumo" },
   { to: "/staff", label: "Gestão de Staff", icon: Users, module: "staff" },
-  { to: "/faturacao", label: "Faturação", icon: Receipt, module: "faturacao" },
+  { to: "/faturacao", label: "Registadora", icon: Receipt, module: "faturacao" },
   { to: "/definicoes", label: "Definições", icon: Settings, module: "settings" },
 ];
 

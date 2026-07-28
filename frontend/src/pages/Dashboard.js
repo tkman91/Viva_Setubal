@@ -10,7 +10,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { Package, Users, Coffee, AlertTriangle, Wallet, Clock } from "lucide-react";
+import { Package, Users, Coffee, AlertTriangle, Wallet, Clock, ShoppingCart, Table2 } from "lucide-react";
 
 function Kpi({ label, value, icon: Icon, tone = "primary", testid }) {
   return (
@@ -44,8 +44,9 @@ export default function Dashboard() {
           <Kpi label="A trabalhar agora" value={num(data.active_now)} icon={Clock} testid="kpi-active-now" />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1 bg-border">
+          <Kpi label="Vendas Hoje" value={eur(data.today_sales)} icon={ShoppingCart} tone="primary" testid="kpi-sales-today" />
+          <Kpi label="Mesas Abertas" value={num(data.open_tables)} icon={Table2} tone="accent" testid="kpi-open-tables" />
           <Kpi label="Consumo Hoje" value={eur(data.today_consumption)} icon={Coffee} tone="accent" testid="kpi-consumo-hoje" />
-          <Kpi label="Consumo Total" value={eur(data.total_consumption)} icon={Coffee} tone="accent" testid="kpi-consumo-total" />
           <Kpi label="Stock Baixo" value={num(data.low_stock_count)} icon={AlertTriangle} tone="destructive" testid="kpi-low-stock" />
         </div>
 
