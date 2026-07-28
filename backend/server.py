@@ -611,13 +611,17 @@ async def root():
 
 app.include_router(api_router)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+_cors_regex = os.environ.get("CORS_ORIGIN_REGEX")
+_cors_kwargs = {"allow_credentials": True, "allow_methods": ["*"], "allow_headers": ["*"]}
+if _cors_regex:
+    _cors_kwargs["allow_origin_regex"] = _cors_regex
+else:
+    _cors_kwargs["allow_origins"] = [
+        o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
+    ]
+logger.info("CORS config -> origins=%s regex=%s", _cors_kwargs.get("allow_origins"), _cors_regex)
+
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 
 @app.on_event("shutdown")
