@@ -1,21 +1,37 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
 
 const ThemeContext = createContext(null);
+const MODES = ["system", "light", "dark"];
+
+function systemPrefersDark() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
 
 export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
+  const [mode, setMode] = useState(() => localStorage.getItem("theme-mode") || "system");
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "dark") root.classList.add("dark");
-    else root.classList.remove("dark");
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+    const apply = () => {
+      const dark = mode === "dark" || (mode === "system" && systemPrefersDark());
+      root.classList.toggle("dark", dark);
+    };
+    apply();
+    localStorage.setItem("theme-mode", mode);
 
-  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+    if (mode === "system" && window.matchMedia) {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
+  }, [mode]);
+
+  const cycleMode = useCallback(() => {
+    setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length]);
+  }, []);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>
+    <ThemeContext.Provider value={{ mode, setMode, cycleMode }}>{children}</ThemeContext.Provider>
   );
 }
 

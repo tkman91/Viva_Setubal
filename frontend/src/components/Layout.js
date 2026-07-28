@@ -13,6 +13,7 @@ import {
   UtensilsCrossed,
   Sun,
   Moon,
+  Monitor,
 } from "lucide-react";
 
 const NAV = [
@@ -27,8 +28,15 @@ const NAV = [
 
 export default function Layout({ children }) {
   const { user, logout, can, isManager } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const { mode, cycleMode } = useTheme();
   const navigate = useNavigate();
+
+  const themeMeta = {
+    system: { icon: Monitor, label: "Sistema" },
+    light: { icon: Sun, label: "Claro" },
+    dark: { icon: Moon, label: "Escuro" },
+  };
+  const ThemeIcon = themeMeta[mode].icon;
 
   const visible = NAV.filter((n) => {
     if (n.module === null) return true;
@@ -81,11 +89,12 @@ export default function Layout({ children }) {
           </div>
           <button
             data-testid="btn-theme-toggle"
-            onClick={toggleTheme}
+            onClick={cycleMode}
+            title="Alternar tema: Sistema → Claro → Escuro"
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors duration-150 mb-3 w-full"
           >
-            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            {theme === "dark" ? "Modo claro" : "Modo escuro"}
+            <ThemeIcon className="w-4 h-4" />
+            Tema: {themeMeta[mode].label}
           </button>
           <button
             data-testid="btn-logout"
