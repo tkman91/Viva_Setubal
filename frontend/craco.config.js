@@ -128,19 +128,24 @@ webpackConfig.devServer = (devServerConfig) => {
   return devServerConfig;
 };
 
-// Wrap with visual edits (automatically adds babel plugin, dev server, and overlay in dev mode)
-if (isDevServer) {
+// Wrap with visual edits (Emergent editor only). Skip automatically when the
+// overlay asset is missing (self-hosted / clone) or when DISABLE_VISUAL_EDITS=true.
+// Otherwise a missing overlay breaks the ENTIRE webpack compilation.
+if (isDevServer && process.env.DISABLE_VISUAL_EDITS !== "true") {
   try {
-    const { withVisualEdits } = require("@emergentbase/visual-edits/craco");
-    webpackConfig = withVisualEdits(webpackConfig);
-  } catch (err) {
-    if (err.code === 'MODULE_NOT_FOUND' && err.message.includes('@emergentbase/visual-edits/craco')) {
-      console.warn(
-        "[visual-edits] @emergentbase/visual-edits not installed — visual editing disabled."
-      );
+    const fs = require("fs");
+    const cracoEntry = require.resolve("@emergentbase/visual-edits/craco");
+    const overlayPath = path.join(path.dirname(cracoEntry), "visual-edit-overlay.js");
+    if (fs.existsSync(overlayPath)) {
+      const { withVisualEdits } = require("@emergentbase/visual-edits/craco");
+      webpackConfig = withVisualEdits(webpackConfig);
     } else {
-      throw err;
+      console.warn(
+        "[visual-edits] overlay não encontrado — visual editing desativado (self-host)."
+      );
     }
+  } catch (err) {
+    console.warn("[visual-edits] indisponível — visual editing desativado:", err.message);
   }
 }
 
