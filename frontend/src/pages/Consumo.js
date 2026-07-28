@@ -10,7 +10,8 @@ const field = "w-full px-3 py-2 bg-background border border-input focus:outline-
 const btnPrimary = "px-4 py-2 bg-primary text-primary-foreground font-semibold text-sm hover:translate-y-[-1px] active:scale-[0.98] transition-transform duration-150";
 
 export default function Consumo() {
-  const { isManager, user } = useAuth();
+  const { user } = useAuth();
+  const canSeeAll = !!user && (user.role === "admin" || (user.role === "gestor" && (user.permissions || []).includes("consumo")));
   const [items, setItems] = useState([]);
   const [products, setProducts] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -20,8 +21,8 @@ export default function Consumo() {
   const load = useCallback(() => {
     api.get("/consumption").then((r) => setItems(r.data));
     api.get("/products").then((r) => setProducts(r.data));
-    if (isManager) api.get("/staff").then((r) => setStaff(r.data)).catch(() => {});
-  }, [isManager]);
+    if (canSeeAll) api.get("/staff").then((r) => setStaff(r.data)).catch(() => {});
+  }, [canSeeAll]);
   useEffect(() => { load(); }, [load]);
 
   const submit = async (e) => {
@@ -58,7 +59,7 @@ export default function Consumo() {
           <DialogContent className="rounded-none">
             <DialogHeader><DialogTitle className="font-display tracking-tight">Registar Consumo</DialogTitle></DialogHeader>
             <form onSubmit={submit} className="space-y-3">
-              {isManager && (
+              {canSeeAll && (
                 <div>
                   <label className="label-tech">Funcionário</label>
                   <select data-testid="select-consumo-staff" className={field} value={form.staff_id} onChange={(e) => setForm({ ...form, staff_id: e.target.value })}>
@@ -88,10 +89,10 @@ export default function Consumo() {
       <div className="p-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-1 bg-border mb-1">
           <div className="bg-card border border-border p-6">
-            <div className="label-tech mb-2">Total {isManager ? "geral" : "meu"}</div>
+            <div className="label-tech mb-2">Total {canSeeAll ? "geral" : "meu"}</div>
             <div data-testid="consumo-total" className="font-display text-4xl font-black tracking-tighter">{eur(total)}</div>
           </div>
-          {isManager && (
+          {canSeeAll && (
             <div className="lg:col-span-2 bg-card border border-border p-6">
               <div className="label-tech mb-3">Por funcionário</div>
               <div className="flex flex-wrap gap-2">
@@ -112,7 +113,7 @@ export default function Consumo() {
             <thead>
               <tr className="border-b border-border label-tech text-left">
                 <th className="px-4 py-3">Data</th>
-                {isManager && <th className="px-4 py-3">Funcionário</th>}
+                {canSeeAll && <th className="px-4 py-3">Funcionário</th>}
                 <th className="px-4 py-3">Produto</th>
                 <th className="px-4 py-3 text-right">Qtd.</th>
                 <th className="px-4 py-3 text-right">Valor</th>
@@ -123,14 +124,14 @@ export default function Consumo() {
               {items.map((i) => (
                 <tr key={i.id} data-testid={`consumo-row-${i.id}`} className="border-b border-border">
                   <td className="px-4 py-3 mono text-xs text-muted-foreground">{new Date(i.created_at).toLocaleString("pt-PT")}</td>
-                  {isManager && <td className="px-4 py-3 font-medium">{i.staff_name}</td>}
+                  {canSeeAll && <td className="px-4 py-3 font-medium">{i.staff_name}</td>}
                   <td className="px-4 py-3">{i.product_name}</td>
                   <td className="px-4 py-3 text-right mono">{num(i.quantity)}</td>
                   <td className="px-4 py-3 text-right mono font-semibold">{eur(i.value)}</td>
                   <td className="px-4 py-3 text-right text-xs">{i.deducted_stock ? "descontado" : "—"}</td>
                 </tr>
               ))}
-              {items.length === 0 && <tr><td colSpan={isManager ? 6 : 5} className="px-4 py-10 text-center text-muted-foreground">Sem consumos registados.</td></tr>}
+              {items.length === 0 && <tr><td colSpan={canSeeAll ? 6 : 5} className="px-4 py-10 text-center text-muted-foreground">Sem consumos registados.</td></tr>}
             </tbody>
           </table>
         </div>

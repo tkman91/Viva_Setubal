@@ -490,3 +490,218 @@ class TestRegistadora:
     def test_invoices_endpoint_removed(self, admin_session):
         r = admin_session.get(f"{API}/invoices")
         assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# NEW permission model: ONLY 'admin' has auto full access.
+# 'gestor'/'funcionario' get ONLY the modules explicitly assigned.
+# ---------------------------------------------------------------------------
+class TestNewPermissionModel:
+    _gestor_email = f"test_gestor_{uuid.uuid4().hex[:6]}@rest.pt"
+    _gestor_pwd = "gestor123"
+    _gestor_id = None
+    _gestor_session = None
+
+    _func_email = f"test_func2_{uuid.uuid4().hex[:6]}@rest.pt"
+    _func_pwd = "func123"
+    _func_id = None
+    _func_session = None
+
+    _shared_product_id = None
+
+    # -- Creation semantics ------------------------------------------------
+    def test_create_admin_gets_all_modules(self, admin_session):
+        email = f"test_admin_{uuid.uuid4().hex[:6]}@rest.pt"
+        r = admin_session.post(f"{API}/staff", json={
+            "name": "TEST Admin2", "email": email, "password": "pw",
+            "role": "admin", "permissions": ["stock"],  # should be overwritten to all
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["role"] == "admin"
+        assert set(d["permissions"]) == {"stock", "picagem", "staff", "consumo", "faturacao", "relatorios"}
+        # cleanup
+        admin_session.delete(f"{API}/staff/{d['id']}")
+
+    def test_create_gestor_keeps_only_selected(self, admin_session):
+        r = admin_session.post(f"{API}/staff", json={
+            "name": "TEST Gestor", "email": TestNewPermissionModel._gestor_email,
+            "password": TestNewPermissionModel._gestor_pwd,
+            "role": "gestor", "permissions": ["consumo"],
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["role"] == "gestor"
+        assert d["permissions"] == ["consumo"], f"gestor should NOT auto-get all: {d['permissions']}"
+        TestNewPermissionModel._gestor_id = d["id"]
+
+    def test_create_funcionario_keeps_only_selected(self, admin_session):
+        r = admin_session.post(f"{API}/staff", json={
+            "name": "TEST Func2", "email": TestNewPermissionModel._func_email,
+            "password": TestNewPermissionModel._func_pwd,
+            "role": "funcionario", "permissions": ["picagem"],
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["permissions"] == ["picagem"]
+        TestNewPermissionModel._func_id = d["id"]
+
+    def test_update_role_to_admin_grants_all(self, admin_session):
+        # create a fresh gestor and promote to admin
+        email = f"test_promote_{uuid.uuid4().hex[:6]}@rest.pt"
+        c = admin_session.post(f"{API}/staff", json={
+            "name": "TEST Promote", "email": email, "password": "pw",
+            "role": "gestor", "permissions": ["stock"],
+        })
+        assert c.status_code == 200
+        sid = c.json()["id"]
+        r = admin_session.put(f"{API}/staff/{sid}", json={"role": "admin"})
+        assert r.status_code == 200
+        assert set(r.json()["permissions"]) == {"stock", "picagem", "staff", "consumo", "faturacao", "relatorios"}
+        admin_session.delete(f"{API}/staff/{sid}")
+
+    # -- Login sessions ----------------------------------------------------
+    def test_login_gestor_and_funcionario(self):
+        gs, gr = _login_session(TestNewPermissionModel._gestor_email, TestNewPermissionModel._gestor_pwd)
+        assert gr.status_code == 200
+        TestNewPermissionModel._gestor_session = gs
+        fs, fr = _login_session(TestNewPermissionModel._func_email, TestNewPermissionModel._func_pwd)
+        assert fr.status_code == 200
+        TestNewPermissionModel._func_session = fs
+
+    # -- gestor with only ['consumo'] --------------------------------------
+    def test_gestor_partial_perms_consumption_allowed(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.get(f"{API}/consumption")
+        assert r.status_code == 200
+
+    def test_gestor_partial_perms_orders_forbidden(self):
+        s = TestNewPermissionModel._gestor_session
+        assert s.get(f"{API}/orders").status_code == 403
+        assert s.post(f"{API}/orders", json={"table_name": "x"}).status_code == 403
+
+    def test_gestor_partial_perms_products_post_forbidden(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.post(f"{API}/products", json={"name": "X"})
+        assert r.status_code == 403
+
+    def test_gestor_partial_perms_products_get_allowed(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.get(f"{API}/products")
+        assert r.status_code == 200
+
+    def test_gestor_not_admin_cannot_create_staff(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.post(f"{API}/staff", json={"name": "X", "email": "x@x.pt", "password": "pw"})
+        assert r.status_code == 403
+
+    def test_gestor_not_admin_cannot_update_staff(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.put(f"{API}/staff/{TestNewPermissionModel._gestor_id}", json={"name": "Y"})
+        assert r.status_code == 403
+
+    def test_gestor_not_admin_cannot_delete_staff(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.delete(f"{API}/staff/{TestNewPermissionModel._func_id}")
+        assert r.status_code == 403
+
+    def test_gestor_not_admin_cannot_edit_settings(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.put(f"{API}/settings", json={"restaurant_name": "x", "lat": 0, "lng": 0, "radius_m": 10})
+        assert r.status_code == 403
+
+    def test_gestor_without_staff_perm_cannot_list_staff(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.get(f"{API}/staff")
+        assert r.status_code == 403
+
+    # -- Register consumption scope (funcionario can only self) ------------
+    def test_setup_shared_product(self, admin_session):
+        r = admin_session.post(f"{API}/products", json={
+            "name": f"TEST_PermProd_{uuid.uuid4().hex[:5]}",
+            "quantity": 50, "sale_price": 1.0, "cost_price": 0.5, "min_quantity": 0,
+        })
+        assert r.status_code == 200
+        TestNewPermissionModel._shared_product_id = r.json()["id"]
+
+    def test_funcionario_without_consumo_forbidden_to_register(self):
+        s = TestNewPermissionModel._func_session
+        r = s.post(f"{API}/consumption", json={
+            "product_id": TestNewPermissionModel._shared_product_id, "quantity": 1,
+        })
+        # funcionario has only 'picagem' -> require_permission('consumo') = 403
+        assert r.status_code == 403
+
+    def test_funcionario_granted_consumo_can_self_but_not_others(self, admin_session):
+        # grant consumo to funcionario
+        admin_session.put(f"{API}/staff/{TestNewPermissionModel._func_id}",
+                          json={"permissions": ["picagem", "consumo"]})
+        # relogin to refresh session cookie/user
+        s, r = _login_session(TestNewPermissionModel._func_email, TestNewPermissionModel._func_pwd)
+        assert r.status_code == 200
+        # can register for self
+        r_self = s.post(f"{API}/consumption", json={
+            "product_id": TestNewPermissionModel._shared_product_id, "quantity": 1, "deduct_stock": False,
+        })
+        assert r_self.status_code == 200, r_self.text
+        # cannot register for someone else (gestor id)
+        r_other = s.post(f"{API}/consumption", json={
+            "staff_id": TestNewPermissionModel._gestor_id,
+            "product_id": TestNewPermissionModel._shared_product_id, "quantity": 1, "deduct_stock": False,
+        })
+        assert r_other.status_code == 403
+
+    def test_gestor_with_consumo_can_register_for_others(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.post(f"{API}/consumption", json={
+            "staff_id": TestNewPermissionModel._func_id,
+            "product_id": TestNewPermissionModel._shared_product_id, "quantity": 1, "deduct_stock": False,
+        })
+        assert r.status_code == 200, r.text
+        assert r.json()["staff_id"] == TestNewPermissionModel._func_id
+
+    # -- Consumption list scoping -----------------------------------------
+    def test_funcionario_consumption_list_scoped_to_self(self):
+        # re-login funcionario (perms updated)
+        s, r = _login_session(TestNewPermissionModel._func_email, TestNewPermissionModel._func_pwd)
+        assert r.status_code == 200
+        r2 = s.get(f"{API}/consumption")
+        assert r2.status_code == 200
+        for c in r2.json():
+            assert c["staff_id"] == TestNewPermissionModel._func_id
+
+    def test_gestor_with_consumo_sees_all_consumption(self):
+        s = TestNewPermissionModel._gestor_session
+        r = s.get(f"{API}/consumption")
+        assert r.status_code == 200
+        staff_ids = {c["staff_id"] for c in r.json()}
+        # should include at least the funcionario entry (not only gestor's own)
+        assert TestNewPermissionModel._func_id in staff_ids
+
+    # -- Timeclock scope ---------------------------------------------------
+    def test_funcionario_timeclock_entries_scoped(self):
+        s, r = _login_session(TestNewPermissionModel._func_email, TestNewPermissionModel._func_pwd)
+        assert r.status_code == 200
+        r2 = s.get(f"{API}/timeclock/entries")
+        assert r2.status_code == 200
+        for e in r2.json():
+            assert e["user_id"] == TestNewPermissionModel._func_id
+
+    def test_gestor_with_picagem_sees_all_entries(self, admin_session):
+        # grant picagem to gestor
+        admin_session.put(f"{API}/staff/{TestNewPermissionModel._gestor_id}",
+                          json={"permissions": ["consumo", "picagem"]})
+        s, r = _login_session(TestNewPermissionModel._gestor_email, TestNewPermissionModel._gestor_pwd)
+        assert r.status_code == 200
+        # ensure at least one entry exists globally (funcionario punched in earlier tests already)
+        r2 = s.get(f"{API}/timeclock/entries")
+        assert r2.status_code == 200
+        # Any entries returned should not be filtered to gestor's own id
+        # (we just assert the request works and returns a list)
+        assert isinstance(r2.json(), list)
+
+    # -- Cleanup -----------------------------------------------------------
+    def test_zz_cleanup(self, admin_session):
+        for sid in (TestNewPermissionModel._gestor_id, TestNewPermissionModel._func_id):
+            if sid:
+                admin_session.delete(f"{API}/staff/{sid}")

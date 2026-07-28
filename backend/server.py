@@ -93,9 +93,16 @@ async def get_current_user(
 
 
 def has_permission(user: dict, module: str) -> bool:
-    if user.get("role") in ("admin", "gestor"):
+    if user.get("role") == "admin":
         return True
     return module in (user.get("permissions") or [])
+
+
+def can_manage(user: dict, module: str) -> bool:
+    """Âmbito de gestão/supervisão: admin, ou gestor que tenha a permissão do módulo."""
+    if user.get("role") == "admin":
+        return True
+    return user.get("role") == "gestor" and module in (user.get("permissions") or [])
 
 
 def require_permission(module: str):
@@ -108,8 +115,8 @@ def require_permission(module: str):
 
 
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") not in ("admin", "gestor"):
-        raise HTTPException(status_code=403, detail="Apenas gestores")
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Apenas o administrador")
     return user
 
 
@@ -269,7 +276,7 @@ async def create_staff(data: StaffCreate, user: dict = Depends(require_admin)):
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email já registado")
     perms = data.permissions
-    if data.role in ("admin", "gestor"):
+    if data.role == "admin":
         perms = MODULES
     doc = {
         "id": str(uuid.uuid4()),
@@ -295,7 +302,7 @@ async def update_staff(staff_id: str, data: StaffUpdate, user: dict = Depends(re
     upd = {k: v for k, v in data.model_dump().items() if v is not None}
     if "password" in upd:
         upd["password_hash"] = hash_password(upd.pop("password"))
-    if upd.get("role") in ("admin", "gestor"):
+    if upd.get("role") == "admin":
         upd["permissions"] = MODULES
     await db.users.update_one({"id": staff_id}, {"$set": upd})
     doc = await db.users.find_one({"id": staff_id}, {"_id": 0, "password_hash": 0})
@@ -432,7 +439,7 @@ async def clock_status(user: dict = Depends(get_current_user)):
 
 @api_router.get("/timeclock/entries")
 async def clock_entries(user: dict = Depends(get_current_user)):
-    if has_permission(user, "picagem") and user.get("role") in ("admin", "gestor"):
+    if can_manage(user, "picagem"):
         entries = await db.time_entries.find({}, {"_id": 0}).sort("clock_in", -1).to_list(300)
     else:
         entries = await db.time_entries.find({"user_id": user["id"]}, {"_id": 0}).sort("clock_in", -1).to_list(100)
@@ -448,7 +455,7 @@ async def register_consumption(data: ConsumptionInput, user: dict = Depends(requ
     if not product:
         raise HTTPException(status_code=404, detail="Produto não encontrado")
     target_id = data.staff_id or user["id"]
-    if target_id != user["id"] and user.get("role") not in ("admin", "gestor"):
+    if target_id != user["id"] and not can_manage(user, "consumo"):
         raise HTTPException(status_code=403, detail="Sem permissão para registar por outro")
     target = await db.users.find_one({"id": target_id})
     if not target:

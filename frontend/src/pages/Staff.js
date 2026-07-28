@@ -20,7 +20,7 @@ const btnPrimary = "px-4 py-2 bg-primary text-primary-foreground font-semibold t
 const empty = { name: "", email: "", password: "", role: "funcionario", hourly_wage: 0, phone: "", permissions: ["picagem"] };
 
 export default function Staff() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [staff, setStaff] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -71,7 +71,9 @@ export default function Staff() {
   return (
     <div>
       <PageHeader title="Gestão de Staff" subtitle="Funcionários, permissões e salários">
-        <button data-testid="btn-add-staff" onClick={openNew} className={btnPrimary}><Plus className="w-4 h-4 inline mr-1" /> Funcionário</button>
+        {isAdmin && (
+          <button data-testid="btn-add-staff" onClick={openNew} className={btnPrimary}><Plus className="w-4 h-4 inline mr-1" /> Funcionário</button>
+        )}
       </PageHeader>
 
       <div className="p-8">
@@ -93,12 +95,14 @@ export default function Staff() {
                   <span key={p} className="text-[0.65rem] px-1.5 py-0.5 border border-border label-tech" style={{ letterSpacing: "0.1em" }}>{p}</span>
                 ))}
               </div>
-              <div className="flex gap-2">
-                <button data-testid={`btn-edit-staff-${s.id}`} onClick={() => openEdit(s)} className="flex-1 py-1.5 border border-border text-sm hover:bg-secondary transition-colors duration-150 flex items-center justify-center gap-1"><Shield className="w-3.5 h-3.5" /> Gerir</button>
-                {s.id !== user.id && (
-                  <button data-testid={`btn-delete-staff-${s.id}`} onClick={() => remove(s.id)} className="py-1.5 px-3 border border-border text-destructive hover:bg-destructive/10 transition-colors duration-150"><Trash2 className="w-3.5 h-3.5" /></button>
-                )}
-              </div>
+              {isAdmin && (
+                <div className="flex gap-2">
+                  <button data-testid={`btn-edit-staff-${s.id}`} onClick={() => openEdit(s)} className="flex-1 py-1.5 border border-border text-sm hover:bg-secondary transition-colors duration-150 flex items-center justify-center gap-1"><Shield className="w-3.5 h-3.5" /> Gerir</button>
+                  {s.id !== user.id && (
+                    <button data-testid={`btn-delete-staff-${s.id}`} onClick={() => remove(s.id)} className="py-1.5 px-3 border border-border text-destructive hover:bg-destructive/10 transition-colors duration-150"><Trash2 className="w-3.5 h-3.5" /></button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -123,7 +127,7 @@ export default function Staff() {
               <div><label className="label-tech">Salário/hora €</label><input type="number" step="any" className={field} value={form.hourly_wage} onChange={(e) => setForm({ ...form, hourly_wage: e.target.value })} /></div>
             </div>
             <input placeholder="Telefone" className={field} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            {form.role === "funcionario" && (
+            {form.role !== "admin" && (
               <div>
                 <label className="label-tech block mb-2">Permissões de acesso</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -136,7 +140,7 @@ export default function Staff() {
                 </div>
               </div>
             )}
-            {form.role !== "funcionario" && <p className="text-xs text-muted-foreground">Gestores e Admins têm acesso a todos os módulos.</p>}
+            {form.role === "admin" && <p className="text-xs text-muted-foreground">O administrador tem acesso total a todos os módulos.</p>}
             <button data-testid="btn-save-staff" className={btnPrimary + " w-full"}>{editing ? "Guardar alterações" : "Adicionar"}</button>
           </form>
         </DialogContent>

@@ -32,14 +32,19 @@ export function AuthProvider({ children }) {
 
   const can = (module) => {
     if (!user) return false;
-    if (user.role === "admin" || user.role === "gestor") return true;
+    if (user.role === "admin") return true;
     return (user.permissions || []).includes(module);
   };
 
-  const isManager = user && (user.role === "admin" || user.role === "gestor");
+  const isAdmin = !!user && user.role === "admin";
+  const canManage = (module) => {
+    if (!user) return false;
+    if (user.role === "admin") return true;
+    return user.role === "gestor" && (user.permissions || []).includes(module);
+  };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, can, isManager, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, can, isAdmin, canManage, setUser }}>
       {children}
     </AuthContext.Provider>
   );

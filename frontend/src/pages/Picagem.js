@@ -13,7 +13,8 @@ function fmtDuration(s) {
 }
 
 export default function Picagem() {
-  const { isManager } = useAuth();
+  const { user } = useAuth();
+  const showAll = !!user && (user.role === "admin" || (user.role === "gestor" && (user.permissions || []).includes("picagem")));
   const [status, setStatus] = useState(null);
   const [settings, setSettings] = useState(null);
   const [entries, setEntries] = useState([]);
@@ -113,12 +114,12 @@ export default function Picagem() {
         </div>
 
         <div className="bg-card border border-border p-6">
-          <div className="label-tech mb-4">{isManager ? "Histórico de picagens (todos)" : "As minhas picagens"}</div>
+          <div className="label-tech mb-4">{showAll ? "Histórico de picagens (todos)" : "As minhas picagens"}</div>
           <div className="space-y-2 max-h-[420px] overflow-y-auto">
             {entries.map((e) => (
               <div key={e.id} data-testid={`entry-${e.id}`} className="flex items-center justify-between p-3 border border-border">
                 <div>
-                  {isManager && <div className="text-sm font-medium">{e.user_name}</div>}
+                  {showAll && <div className="text-sm font-medium">{e.user_name}</div>}
                   <div className="mono text-xs text-muted-foreground">
                     {new Date(e.clock_in).toLocaleString("pt-PT")}
                   </div>

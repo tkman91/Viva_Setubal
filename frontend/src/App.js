@@ -14,12 +14,11 @@ import Faturacao from "@/pages/Faturacao";
 import Settings from "@/pages/Settings";
 
 function Protected({ children, module }) {
-  const { user, loading, can, isManager } = useAuth();
+  const { user, loading, can, isAdmin } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">A carregar...</div>;
   if (!user) return <Navigate to="/login" replace />;
   if (module) {
-    const managerOnly = ["staff", "faturacao", "settings"];
-    const allowed = managerOnly.includes(module) ? isManager || can(module) : can(module);
+    const allowed = module === "settings" ? isAdmin : can(module);
     if (!allowed) return <Navigate to="/" replace />;
   }
   return <Layout>{children}</Layout>;

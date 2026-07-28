@@ -27,7 +27,7 @@ const NAV = [
 ];
 
 export default function Layout({ children }) {
-  const { user, logout, can, isManager } = useAuth();
+  const { user, logout, can, isAdmin } = useAuth();
   const { mode, cycleMode } = useTheme();
   const navigate = useNavigate();
 
@@ -40,8 +40,7 @@ export default function Layout({ children }) {
 
   const visible = NAV.filter((n) => {
     if (n.module === null) return true;
-    if (n.module === "settings" || n.module === "staff" || n.module === "faturacao")
-      return isManager || can(n.module);
+    if (n.module === "settings") return isAdmin;
     return can(n.module);
   });
 
