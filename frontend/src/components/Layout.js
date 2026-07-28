@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
 import {
   LayoutDashboard,
   Package,
@@ -10,6 +11,8 @@ import {
   Settings,
   LogOut,
   UtensilsCrossed,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 const NAV = [
@@ -24,6 +27,7 @@ const NAV = [
 
 export default function Layout({ children }) {
   const { user, logout, can, isManager } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
   const visible = NAV.filter((n) => {
@@ -75,6 +79,14 @@ export default function Layout({ children }) {
             <div className="text-sm font-semibold truncate">{user?.name}</div>
             <div className="label-tech" style={{ fontSize: "0.6rem" }}>{user?.role}</div>
           </div>
+          <button
+            data-testid="btn-theme-toggle"
+            onClick={toggleTheme}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors duration-150 mb-3 w-full"
+          >
+            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            {theme === "dark" ? "Modo claro" : "Modo escuro"}
+          </button>
           <button
             data-testid="btn-logout"
             onClick={() => {
