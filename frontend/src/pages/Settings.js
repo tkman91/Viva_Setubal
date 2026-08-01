@@ -44,7 +44,7 @@ export default function Settings() {
   return (
     <div>
       <PageHeader title="Definições" subtitle="Localização do restaurante para picagem de ponto" />
-      <div className="p-8 max-w-xl">
+      <div className="p-4 sm:p-8 max-w-xl">
         <form onSubmit={save} className="bg-card border border-border p-6 space-y-4">
           <div className="flex items-center gap-2 text-primary mb-2"><MapPin className="w-5 h-5" /><span className="font-display font-bold tracking-tight text-lg">Localização</span></div>
           <div>

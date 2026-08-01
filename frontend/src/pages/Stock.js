@@ -144,7 +144,7 @@ export default function Stock() {
         </Dialog>
       </PageHeader>
 
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
         <div className="bg-card border border-border overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

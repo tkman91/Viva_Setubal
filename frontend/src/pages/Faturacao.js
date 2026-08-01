@@ -141,18 +141,18 @@ export default function Registadora() {
   const shownTables = tables.filter((t) => activeZone === "all" || t.zone_id === activeZone);
   const shownProducts = products.filter((p) => activeCat === "all" || p.category_id === activeCat);
 
-  if (!config) return <div className="p-8 text-muted-foreground">A carregar...</div>;
+  if (!config) return <div className="p-4 sm:p-8 text-muted-foreground">A carregar...</div>;
 
   return (
     <div>
       <PageHeader title="Registadora" subtitle="Zonas · mesas · IVA · pagamento">
         <form onSubmit={openWalkIn} className="flex items-center gap-2">
-          <input data-testid="input-walkin" placeholder="Mesa avulsa / take-away" value={walkName} onChange={(e) => setWalkName(e.target.value)} className={field + " w-48"} />
+          <input data-testid="input-walkin" placeholder="Mesa avulsa / take-away" value={walkName} onChange={(e) => setWalkName(e.target.value)} className={field + " w-40 sm:w-48"} />
           <button data-testid="btn-open-walkin" className={btnPrimary}><Plus className="w-4 h-4 inline mr-1" />Abrir</button>
         </form>
       </PageHeader>
 
-      <div className="p-8 space-y-4">
+      <div className="p-4 sm:p-8 space-y-4">
         <div className="flex flex-wrap gap-1">
           <button data-testid="zone-all" onClick={() => setActiveZone("all")} className={`px-4 py-2 text-sm font-semibold border ${activeZone === "all" ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-secondary"}`}>Todas</button>
           {zones.map((z) => (
@@ -228,7 +228,7 @@ export default function Registadora() {
             </div>
 
             {/* Conta */}
-            <div className="flex flex-col min-h-0">
+            <div className="flex flex-col min-h-0 basis-1/2 lg:basis-auto">
               <DialogHeader className="p-4 border-b border-border">
                 <DialogTitle className="font-display tracking-tight flex items-center gap-2">
                   <Utensils className="w-5 h-5 text-primary" /> {selected?.table_name}{selected?.zone_name ? ` · ${selected.zone_name}` : ""}

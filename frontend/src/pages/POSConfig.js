@@ -16,7 +16,7 @@ export default function POSConfig() {
   return (
     <div>
       <PageHeader title="Config POS" subtitle="Zonas · menu · pagamentos · talão" />
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
         <Tabs defaultValue="zones">
           <TabsList className="rounded-none flex-wrap h-auto">
             <TabsTrigger data-testid="tab-zones" value="zones" className="rounded-none">Zonas & Mesas</TabsTrigger>

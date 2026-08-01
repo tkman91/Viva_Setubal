@@ -76,7 +76,7 @@ export default function Staff() {
         )}
       </PageHeader>
 
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1 bg-border">
           {staff.map((s) => (
             <div key={s.id} data-testid={`staff-card-${s.id}`} className="bg-card border border-border p-6 fade-up">

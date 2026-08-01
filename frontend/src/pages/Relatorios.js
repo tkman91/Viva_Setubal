@@ -37,7 +37,7 @@ export default function Relatorios() {
         </div>
       </PageHeader>
 
-      <div className="p-8 space-y-6">
+      <div className="p-4 sm:p-8 space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-1 bg-border">
           {kpis.map((k) => {
             const Icon = k.icon;

@@ -31,12 +31,12 @@ export default function Dashboard() {
     api.get("/dashboard").then((r) => setData(r.data)).catch(() => {});
   }, []);
 
-  if (!data) return <div className="p-8 text-muted-foreground">A carregar...</div>;
+  if (!data) return <div className="p-4 sm:p-8 text-muted-foreground">A carregar...</div>;
 
   return (
     <div>
       <PageHeader title="Painel" subtitle="Visão geral da operação" />
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1 bg-border mb-1">
           <Kpi label="Valor de Stock" value={eur(data.stock_value)} icon={Wallet} testid="kpi-stock-value" />
           <Kpi label="Produtos" value={num(data.products_count)} icon={Package} testid="kpi-products" />

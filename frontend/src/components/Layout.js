@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   LayoutDashboard,
   Package,
@@ -16,6 +18,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  Menu,
 } from "lucide-react";
 
 const NAV = [
@@ -34,6 +37,7 @@ export default function Layout({ children }) {
   const { user, logout, can, isAdmin } = useAuth();
   const { mode, cycleMode } = useTheme();
   const navigate = useNavigate();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const themeMeta = {
     system: { icon: Monitor, label: "Sistema" },
@@ -48,70 +52,100 @@ export default function Layout({ children }) {
     return can(n.module);
   });
 
+  const sidebar = (onNav) => (
+    <>
+      <div className="px-6 py-6 border-b border-border">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 bg-primary flex items-center justify-center">
+            <UtensilsCrossed className="w-5 h-5 text-primary-foreground" />
+          </div>
+          <div>
+            <div className="font-display font-bold text-lg leading-none tracking-tight">GESTÃO</div>
+            <div className="label-tech" style={{ fontSize: "0.6rem" }}>Restaurante</div>
+          </div>
+        </div>
+      </div>
+      <nav className="flex-1 py-4 overflow-y-auto">
+        {visible.map((n) => {
+          const Icon = n.icon;
+          return (
+            <NavLink
+              key={n.to}
+              to={n.to}
+              end={n.to === "/"}
+              onClick={onNav}
+              data-testid={`nav-${n.to === "/" ? "painel" : n.to.slice(1)}`}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors duration-150 border-l-2 ${
+                  isActive
+                    ? "border-primary bg-secondary text-foreground"
+                    : "border-transparent text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                }`
+              }
+            >
+              <Icon className="w-4 h-4" />
+              {n.label}
+            </NavLink>
+          );
+        })}
+      </nav>
+      <div className="border-t border-border p-4">
+        <div className="mb-3">
+          <div className="text-sm font-semibold truncate">{user?.name}</div>
+          <div className="label-tech" style={{ fontSize: "0.6rem" }}>{user?.role}</div>
+        </div>
+        <button
+          data-testid="btn-theme-toggle"
+          onClick={cycleMode}
+          title="Alternar tema: Sistema → Claro → Escuro"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors duration-150 mb-3 w-full"
+        >
+          <ThemeIcon className="w-4 h-4" />
+          Tema: {themeMeta[mode].label}
+        </button>
+        <button
+          data-testid="btn-logout"
+          onClick={() => { logout(); navigate("/login"); }}
+          className="flex items-center gap-2 text-sm text-destructive hover:opacity-70 transition-opacity duration-150"
+        >
+          <LogOut className="w-4 h-4" /> Terminar sessão
+        </button>
+      </div>
+    </>
+  );
+
   return (
     <div className="min-h-screen flex bg-background text-foreground">
-      <aside className="w-64 border-r border-border bg-card flex flex-col shrink-0 sticky top-0 h-screen">
-        <div className="px-6 py-6 border-b border-border">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 bg-primary flex items-center justify-center">
-              <UtensilsCrossed className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <div className="font-display font-bold text-lg leading-none tracking-tight">GESTÃO</div>
-              <div className="label-tech" style={{ fontSize: "0.6rem" }}>Restaurante</div>
-            </div>
-          </div>
-        </div>
-        <nav className="flex-1 py-4 overflow-y-auto">
-          {visible.map((n) => {
-            const Icon = n.icon;
-            return (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                end={n.to === "/"}
-                data-testid={`nav-${n.to === "/" ? "painel" : n.to.slice(1)}`}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors duration-150 border-l-2 ${
-                    isActive
-                      ? "border-primary bg-secondary text-foreground"
-                      : "border-transparent text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-                  }`
-                }
-              >
-                <Icon className="w-4 h-4" />
-                {n.label}
-              </NavLink>
-            );
-          })}
-        </nav>
-        <div className="border-t border-border p-4">
-          <div className="mb-3">
-            <div className="text-sm font-semibold truncate">{user?.name}</div>
-            <div className="label-tech" style={{ fontSize: "0.6rem" }}>{user?.role}</div>
-          </div>
-          <button
-            data-testid="btn-theme-toggle"
-            onClick={cycleMode}
-            title="Alternar tema: Sistema → Claro → Escuro"
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors duration-150 mb-3 w-full"
-          >
-            <ThemeIcon className="w-4 h-4" />
-            Tema: {themeMeta[mode].label}
-          </button>
-          <button
-            data-testid="btn-logout"
-            onClick={() => {
-              logout();
-              navigate("/login");
-            }}
-            className="flex items-center gap-2 text-sm text-destructive hover:opacity-70 transition-opacity duration-150"
-          >
-            <LogOut className="w-4 h-4" /> Terminar sessão
-          </button>
-        </div>
+      {/* Sidebar desktop */}
+      <aside className="hidden lg:flex w-64 border-r border-border bg-card flex-col shrink-0 sticky top-0 h-screen">
+        {sidebar(() => {})}
       </aside>
-      <main className="flex-1 min-w-0">{children}</main>
+
+      {/* Gaveta mobile */}
+      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <SheetContent side="left" className="p-0 w-72 flex flex-col bg-card border-border" data-testid="mobile-drawer">
+          {sidebar(() => setDrawerOpen(false))}
+        </SheetContent>
+      </Sheet>
+
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Top bar mobile */}
+        <div className="lg:hidden sticky top-0 z-30 h-14 flex items-center justify-between px-3 border-b border-border bg-card">
+          <button data-testid="btn-open-menu" onClick={() => setDrawerOpen(true)} className="p-2 -ml-1" aria-label="Abrir menu">
+            <Menu className="w-6 h-6" />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 bg-primary flex items-center justify-center">
+              <UtensilsCrossed className="w-4 h-4 text-primary-foreground" />
+            </div>
+            <span className="font-display font-bold tracking-tight">GESTÃO</span>
+          </div>
+          <button data-testid="btn-theme-toggle-mobile" onClick={cycleMode} className="p-2 -mr-1" aria-label="Tema">
+            <ThemeIcon className="w-5 h-5" />
+          </button>
+        </div>
+        <main className="flex-1 min-w-0">{children}</main>
+      </div>
     </div>
   );
 }
@@ -119,13 +153,13 @@ export default function Layout({ children }) {
 export function PageHeader({ title, subtitle, children }) {
   const now = new Date();
   return (
-    <div className="sticky top-0 z-10 backdrop-blur-xl bg-background/80 border-b border-border px-8 py-5 flex items-end justify-between gap-4">
+    <div className="sticky top-14 lg:top-0 z-10 backdrop-blur-xl bg-background/80 border-b border-border px-4 sm:px-8 py-4 sm:py-5 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
       <div>
-        <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tighter leading-none">{title}</h1>
+        <h1 className="font-display text-2xl sm:text-4xl font-bold tracking-tighter leading-none">{title}</h1>
         {subtitle && <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>}
       </div>
-      <div className="flex items-center gap-4">
-        <div className="text-right hidden sm:block">
+      <div className="flex items-center flex-wrap gap-3">
+        <div className="text-right hidden md:block">
           <div className="mono text-sm font-medium">{now.toLocaleDateString("pt-PT")}</div>
           <div className="label-tech" style={{ fontSize: "0.6rem" }}>{now.toLocaleDateString("pt-PT", { weekday: "long" })}</div>
         </div>

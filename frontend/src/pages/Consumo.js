@@ -86,7 +86,7 @@ export default function Consumo() {
         </Dialog>
       </PageHeader>
 
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-1 bg-border mb-1">
           <div className="bg-card border border-border p-6">
             <div className="label-tech mb-2">Total {canSeeAll ? "geral" : "meu"}</div>

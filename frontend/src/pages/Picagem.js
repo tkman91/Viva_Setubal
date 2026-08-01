@@ -70,7 +70,7 @@ export default function Picagem() {
   return (
     <div>
       <PageHeader title="Picagem de Ponto" subtitle="Validação por geolocalização" />
-      <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-1 bg-border">
+      <div className="p-4 sm:p-8 grid grid-cols-1 lg:grid-cols-2 gap-1 bg-border">
         <div className="bg-card border border-border p-8 flex flex-col items-center justify-center">
           {!settings?.lat ? (
             <div className="text-center text-muted-foreground">
