@@ -1,8 +1,8 @@
 # 🍽️ Gestão de Restaurante
 
-Aplicação full-stack para gestão de restaurante: **controlo de stock**, **picagem de ponto com geolocalização**, **gestão de staff com permissões por módulo**, **consumo do staff** e uma **registadora (POS) com mesas** que desconta o stock automaticamente.
+Aplicação full-stack para gestão de restaurante: **controlo de stock**, **picagem de ponto com geolocalização**, **gestão de staff com permissões por módulo**, **consumo do staff**, **relatórios de vendas** e uma **Registadora (POS) configurável** — com zonas e mesas, categorias, modificadores/extras, menus/combos, IVA por produto, descontos, taxa de serviço, dividir pagamento, **talão/fatura em PDF** e **faturação certificada configurável** (InvoiceXpress/Moloni), descontando o stock automaticamente.
 
-**Stack:** React 19 + FastAPI + MongoDB · Interface PT-PT · Moeda € · Auth por cookie httpOnly
+**Stack:** React 19 + FastAPI + MongoDB + ReportLab (PDF) · Interface PT-PT · Moeda € · Auth por cookie httpOnly
 
 > 🚀 **Deploy numa VM / HTTPS:** ver [`DEPLOY_UBUNTU.md`](./DEPLOY_UBUNTU.md) e os scripts em [`scripts/`](./scripts).
 > 🔑 **Permissões:** só o `admin` tem acesso total; o admin escolhe por módulo o que cada `gestor`/`funcionario` vê.
@@ -138,7 +138,8 @@ A aplicação abre em **http://localhost:3000**.
 │   │   ├── context/         # AuthContext (autenticação)
 │   │   ├── lib/api.js       # cliente axios + helpers (€)
 │   │   ├── components/       # Layout + componentes UI (shadcn)
-│   │   └── pages/            # Dashboard, Stock, Picagem, Staff, Consumo, Faturacao, Settings
+│   │   ├── pages/            # Dashboard, Stock, Picagem, Staff, Consumo, Faturacao(Registadora), Relatorios, POSConfig, Settings
+│   │   └── components/pos/   # Registadora: ModifierPicker, PaymentDialog, receipt + config/ (Zonas&Mesas, Categorias, Modificadores, Combos, Geral)
 │   ├── package.json
 │   └── .env                 # REACT_APP_BACKEND_URL (NÃO versionar)
 └── README.md
@@ -162,13 +163,17 @@ Deves receber um JSON com `token` e `user`.
 
 | Módulo | Descrição |
 |--------|-----------|
-| **Painel** | KPIs de stock, staff, consumo e alertas |
+| **Painel** | KPIs de stock, staff, consumo, vendas do dia e mesas abertas + alertas |
 | **Picagem de Ponto** | Entrada/saída validada por raio de geolocalização (GPS do browser) |
-| **Controlo de Stock** | Produtos, movimentos de entrada/saída, alertas de stock baixo |
+| **Controlo de Stock** | Produtos (com categoria, IVA, modificadores, controlo de stock), **editar produtos**, movimentos de entrada/saída, alertas de stock baixo |
 | **Consumo Staff** | Registo de consumo (desconta stock + valor) |
 | **Gestão de Staff** | Adicionar funcionários, funções e permissões por módulo |
-| **Faturação** | Faturas com IVA (23/13/6/0%); botão "Emitir" preparado para integração externa (InvoiceXpress/Moloni) |
-| **Definições** | Localização e raio do restaurante |
+| **Registadora (POS)** | Zonas → mesas, mesa avulsa/take-away, menu por categorias + combos, modificadores/extras, desconto (%/€), taxa de serviço, IVA por taxa, **dividir pagamento** com troco, **talão em PDF/impressão** |
+| **Relatórios** | Vendas por dia/zona/método de pagamento, IVA liquidado, ticket médio e contas canceladas, com filtro de datas |
+| **Config POS** (admin) | Zonas & mesas, categorias, modificadores, menus/combos, métodos de pagamento, IVA padrão, cabeçalho do talão, moeda/decimais/arredondamento e **faturação configurável** (InvoiceXpress/Moloni + API key) |
+| **Definições** (admin) | Localização e raio do restaurante (para picagem) |
+
+> 🧾 **Faturação:** a emissão gera um número sequencial (`FT ano/n`). Enquanto não for ligada a API key real do fornecedor em **Config POS → Faturação**, o número é **simulado**; a estrutura já está pronta para a ligação real.
 
 ---
 

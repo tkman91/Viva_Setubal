@@ -52,7 +52,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements-selfhost.txt
 ```
-> Usa `requirements-selfhost.txt` (só as dependências de runtime).
+> Usa `requirements-selfhost.txt` (só as dependências de runtime, inclui `reportlab` para os talões/faturas em PDF).
 > **Não** uses o `requirements.txt` completo numa VM externa — ele contém pacotes
 > do ambiente Emergent (ex.: `emergentintegrations`) que não estão no PyPI e fazem o `pip install` falhar.
 
