@@ -43,8 +43,15 @@
 - Endpoints: `/api/pos/config`, `/api/pos/zones`, `/api/pos/tables` (+bulk), `/api/pos/categories`, `/api/pos/modifier-groups`, `/api/pos/combos`; orders com `kind`(product/combo), modifiers, PATCH desconto/serviço, close com `payments`.
 - Validado por curl: IVA (3,00€=2,44 base+0,56 IVA23%), pagamento/troco, desconto 10%, modificador soma preço, combo desconta componentes.
 
+## Extensões POS (2026-08-01, parte 2)
+- **Editar produtos**: Stock com botão editar (btn-edit-product) → PUT /products (categoria/IVA/stock/modificadores).
+- **Cancelamento com registo**: POST /orders/{id}/cancel {reason} → soft-cancel (status='cancelada', cancel_reason, cancelled_by), devolve stock; DELETE /orders passou a admin-only (hard delete).
+- **Relatórios POS** (`/relatorios`, módulo relatorios): GET /reports/pos?from&to → KPIs (vendas, contas, ticket médio, canceladas), gráfico por dia, por zona, por método, IVA liquidado.
+- **Talão/Fatura em PDF** (servidor, reportlab): GET /orders/{id}/receipt.pdf — talão 80mm com cabeçalho, itens+modificadores, IVA, pagamentos, troco, nº fatura. Botões Imprimir/PDF/Emitir fatura no recibo.
+- **Faturação configurável**: pos_config com invoice_provider (none/invoicexpress/moloni/outro), invoice_enabled, invoice_account, invoice_api_key (mascarada — nunca devolvida em plaintext; invoice_api_key_set bool). POST /orders/{id}/invoice gera nº sequencial FT ano/n — **SIMULADO** até ligar API key real do fornecedor.
+- Validado: backend 105/105 pytest, frontend 100%. PDF renderizado e confirmado visualmente.
+
 ## Estado / testes
-- Backend 33/33 testes PASS. Frontend smoke 100%.
 
 ## Backlog / próximos passos
 - P1: Integração real de faturação (InvoiceXpress/Moloni) — atualmente sync é simulado.
