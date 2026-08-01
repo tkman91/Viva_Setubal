@@ -154,6 +154,23 @@ bash scripts/setup_https_letsencrypt.sh SEU_DOMINIO teu@email.pt
 Mantém o `yarn start` em dev atrás do Nginx (config `deploy/nginx-restaurante-dev.conf`), emite o certificado, e acerta os `.env`
 (frontend passa a chamar `/api` na mesma origem; backend fica com `COOKIE_SECURE="true"`).
 
+### A2) DuckDNS + DNS-01 (cert válido SEM abrir portas 80/443 — ideal p/ portas não-standard ou Twingate)
+Quando usas **portas externas não-standard** (ex.: `10443→443`, `10080→80`) ou **Twingate**, o Let's Encrypt HTTP-01
+**não funciona** (o ACME só liga às portas 80/443 padrão do teu IP). A solução é **DNS-01** com DuckDNS,
+que valida por um registo TXT — não precisa de portas abertas.
+```bash
+cd ~/Viva_Setubal
+# <dominio-duckdns> <email> <token-duckdns> [porta-https-externa]
+bash scripts/setup_https_duckdns.sh tkman91.duckdns.org teu@email.pt SEU_TOKEN 10443
+```
+- O **token** está no topo de https://www.duckdns.org depois de entrares.
+- Emite o certificado via DNS-01, configura o Nginx (proxy do `yarn start` + `/api`), acerta os `.env`
+  (`COOKIE_SECURE="true"`, `CORS_ORIGINS` com a porta externa) e instala a **renovação automática** (timer systemd).
+- Acedes depois em **`https://tkman91.duckdns.org:10443`** (a porta externa aparece no URL).
+- Testar renovação: `sudo /opt/certbot/bin/certbot renew --dry-run`.
+
+> ℹ️ O DuckDNS só guarda **um** registo TXT por domínio, por isso emite-se **um único domínio** (sem wildcard `*.`).
+
 ### B) Só LAN (sem domínio) — certificado self-signed
 ```bash
 cd ~/Viva_Setubal
