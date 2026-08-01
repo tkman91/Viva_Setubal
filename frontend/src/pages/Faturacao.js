@@ -3,7 +3,7 @@ import api, { fmtMoney, num, formatApiError } from "@/lib/api";
 import { PageHeader } from "@/components/Layout";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Trash2, Table2, Utensils, Printer, Percent, ConciergeBell, FileText, Download } from "lucide-react";
+import { Plus, Trash2, Table2, Utensils, Printer, Percent, ConciergeBell, FileText, Download, RotateCcw } from "lucide-react";
 import ModifierPicker from "@/components/pos/ModifierPicker";
 import PaymentDialog from "@/components/pos/PaymentDialog";
 import { printReceipt } from "@/components/pos/receipt";
@@ -50,6 +50,10 @@ export default function Registadora() {
       setCategories(cat.data); setOpenOrders(o.data);
     })().catch(() => toast.error("Falha ao carregar POS"));
   }, []);
+
+  useEffect(() => {
+    if (selected?.id) localStorage.setItem("vs_last_order", selected.id);
+  }, [selected?.id]);
 
   const orderForTable = (tableId) => openOrders.find((o) => o.table_id === tableId);
 
@@ -140,6 +144,7 @@ export default function Registadora() {
 
   const shownTables = tables.filter((t) => activeZone === "all" || t.zone_id === activeZone);
   const shownProducts = products.filter((p) => activeCat === "all" || p.category_id === activeCat);
+  const lastOrder = openOrders.find((o) => o.id === (typeof window !== "undefined" ? localStorage.getItem("vs_last_order") : null));
 
   if (!config) return <div className="p-4 sm:p-8 text-muted-foreground">A carregar...</div>;
 
@@ -187,6 +192,18 @@ export default function Registadora() {
           ))}
         </div>
       </div>
+
+      {/* Modo Rápido: retomar última mesa aberta */}
+      {!selected && lastOrder && (
+        <button data-testid="fab-resume-table" onClick={() => setSelected(lastOrder)}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-3 pl-4 pr-5 py-3 bg-accent text-accent-foreground shadow-2xl border border-accent-foreground/10 hover:translate-y-[-2px] active:scale-[0.98] transition-transform duration-150">
+          <RotateCcw className="w-5 h-5 shrink-0" />
+          <div className="text-left leading-tight">
+            <div className="label-tech" style={{ fontSize: "0.55rem" }}>Retomar mesa</div>
+            <div className="font-display font-bold tracking-tight text-sm">{lastOrder.table_name} · {m(lastOrder.total)}</div>
+          </div>
+        </button>
+      )}
 
       {/* Painel da encomenda */}
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
