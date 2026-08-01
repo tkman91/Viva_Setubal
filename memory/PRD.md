@@ -31,6 +31,18 @@
 - Faturação: criar faturas com linhas/IVA (23/13/6/0%), totais, nº sequencial, "Emitir" (sync simulado — INTEGRAÇÃO EXTERNA POR LIGAR).
 - Definições: localização do restaurante + raio.
 
+## POS Configurável (2026-08-01)
+- **Config POS** (nova página admin, `/config-pos`): tabs Zonas&Mesas, Categorias, Modificadores, Menus/Combos, Pagamentos·Talão·Geral.
+- **Zonas & Mesas**: CRUD zonas (Sala/Esplanada/Balcão), mesas por zona (nome, lugares), criação em série (bulk).
+- **Categorias**: CRUD com cor; produtos associam-se por `category_id`; botões de categoria no POS.
+- **Modificadores**: grupos (min/max/obrigatório) + opções com `price_delta`; associados a produtos no Stock; escolhidos no POS via ModifierPicker.
+- **Menus/Combos**: preço fixo, IVA próprio, componentes que descontam stock.
+- **Config geral** (`pos_config` singleton): métodos de pagamento (Dinheiro/Multibanco/MB Way, editáveis), taxa de serviço %, IVA padrão, cabeçalho do talão (nome/NIF/morada/tel/rodapé), símbolo de moeda, casas decimais, arredondamento (nenhum/0,05/0,10), controlo de stock por defeito.
+- **Registadora redesenhada**: tabs de zona → grelha de mesas (livre/ocupada c/ total), mesa avulsa/take-away, menu por categorias + combos, desconto (%/€), taxa de serviço, breakdown de IVA por taxa, dividir pagamento por métodos com troco, talão imprimível (janela de impressão → PDF do browser).
+- **Produtos** estendidos: `category_id`, `vat_rate`, `track_stock`, `modifier_group_ids`.
+- Endpoints: `/api/pos/config`, `/api/pos/zones`, `/api/pos/tables` (+bulk), `/api/pos/categories`, `/api/pos/modifier-groups`, `/api/pos/combos`; orders com `kind`(product/combo), modifiers, PATCH desconto/serviço, close com `payments`.
+- Validado por curl: IVA (3,00€=2,44 base+0,56 IVA23%), pagamento/troco, desconto 10%, modificador soma preço, combo desconta componentes.
+
 ## Estado / testes
 - Backend 33/33 testes PASS. Frontend smoke 100%.
 

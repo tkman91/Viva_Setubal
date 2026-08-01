@@ -8,6 +8,7 @@ import {
   Users,
   Coffee,
   Receipt,
+  SlidersHorizontal,
   Settings,
   LogOut,
   UtensilsCrossed,
@@ -23,6 +24,7 @@ const NAV = [
   { to: "/consumo", label: "Consumo Staff", icon: Coffee, module: "consumo" },
   { to: "/staff", label: "Gestão de Staff", icon: Users, module: "staff" },
   { to: "/faturacao", label: "Registadora", icon: Receipt, module: "faturacao" },
+  { to: "/config-pos", label: "Config POS", icon: SlidersHorizontal, module: "settings" },
   { to: "/definicoes", label: "Definições", icon: Settings, module: "settings" },
 ];
 

@@ -409,13 +409,15 @@ class TestRegistadora:
     def test_add_item_deducts_stock(self, admin_session):
         r = admin_session.post(
             f"{API}/orders/{TestRegistadora._order_id}/items",
-            json={"product_id": TestRegistadora._prod_id, "quantity": 3},
+            json={"kind": "product", "ref_id": TestRegistadora._prod_id, "quantity": 3},
         )
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["item"]["line_total"] == 15.0
+        # new schema returns the whole order
         assert d["total"] == 15.0
-        TestRegistadora._item_id = d["item"]["id"]
+        assert len(d["items"]) == 1
+        assert d["items"][-1]["line_total"] == 15.0
+        TestRegistadora._item_id = d["items"][-1]["id"]
         # stock deducted
         p = next(x for x in admin_session.get(f"{API}/products").json() if x["id"] == TestRegistadora._prod_id)
         assert p["quantity"] == 17
@@ -423,7 +425,7 @@ class TestRegistadora:
     def test_add_item_insufficient_stock(self, admin_session):
         r = admin_session.post(
             f"{API}/orders/{TestRegistadora._order_id}/items",
-            json={"product_id": TestRegistadora._prod_id, "quantity": 999999},
+            json={"kind": "product", "ref_id": TestRegistadora._prod_id, "quantity": 999999},
         )
         assert r.status_code == 400
         assert "stock" in r.json()["detail"].lower()
@@ -438,22 +440,22 @@ class TestRegistadora:
         assert p["quantity"] == 20
 
     def test_close_empty_order_400(self, admin_session):
-        r = admin_session.post(f"{API}/orders/{TestRegistadora._order_id}/close")
+        r = admin_session.post(f"{API}/orders/{TestRegistadora._order_id}/close", json={"payments": []})
         assert r.status_code == 400
 
     def test_add_and_close(self, admin_session):
         r = admin_session.post(
             f"{API}/orders/{TestRegistadora._order_id}/items",
-            json={"product_id": TestRegistadora._prod_id, "quantity": 2},
+            json={"kind": "product", "ref_id": TestRegistadora._prod_id, "quantity": 2},
         )
         assert r.status_code == 200
-        rc = admin_session.post(f"{API}/orders/{TestRegistadora._order_id}/close")
+        rc = admin_session.post(f"{API}/orders/{TestRegistadora._order_id}/close", json={"payments": []})
         assert rc.status_code == 200
         assert rc.json()["total"] == 10.0
         # cannot add to closed
         r2 = admin_session.post(
             f"{API}/orders/{TestRegistadora._order_id}/items",
-            json={"product_id": TestRegistadora._prod_id, "quantity": 1},
+            json={"kind": "product", "ref_id": TestRegistadora._prod_id, "quantity": 1},
         )
         assert r2.status_code == 400
 
@@ -470,21 +472,22 @@ class TestRegistadora:
         assert rc.status_code == 200
 
     def test_cancel_open_returns_stock(self, admin_session):
-        # new order, add items, cancel -> stock restored fully
+        # get current product qty first, then add and cancel -> should restore
+        p0 = next(x for x in admin_session.get(f"{API}/products").json() if x["id"] == TestRegistadora._prod_id)
+        qty0 = p0["quantity"]
         o = admin_session.post(f"{API}/orders", json={"table_name": "TEST Cancel"}).json()
         admin_session.post(
             f"{API}/orders/{o['id']}/items",
-            json={"product_id": TestRegistadora._prod_id, "quantity": 4},
+            json={"kind": "product", "ref_id": TestRegistadora._prod_id, "quantity": 4},
         )
-        # product qty currently 18 after previous close(2)
         r = admin_session.delete(f"{API}/orders/{o['id']}")
         assert r.status_code == 200
         p = next(x for x in admin_session.get(f"{API}/products").json() if x["id"] == TestRegistadora._prod_id)
-        assert p["quantity"] == 18
+        assert p["quantity"] == qty0
 
     def test_add_item_order_not_found(self, admin_session):
         r = admin_session.post(f"{API}/orders/nonexistent/items",
-                               json={"product_id": TestRegistadora._prod_id, "quantity": 1})
+                               json={"kind": "product", "ref_id": TestRegistadora._prod_id, "quantity": 1})
         assert r.status_code == 404
 
     def test_invoices_endpoint_removed(self, admin_session):
@@ -705,3 +708,289 @@ class TestNewPermissionModel:
         for sid in (TestNewPermissionModel._gestor_id, TestNewPermissionModel._func_id):
             if sid:
                 admin_session.delete(f"{API}/staff/{sid}")
+
+
+
+# ---------------------------------------------------------------------------
+# POS Configuration: zones, tables (bulk), categories, modifier-groups, combos,
+# config (payment methods, receipt header, decimals/rounding, VAT).
+# ---------------------------------------------------------------------------
+class TestPOSConfig:
+    _zone_id = None
+    _table_id = None
+    _cat_id = None
+    _mod_group_id = None
+    _mod_opt_id = None
+    _combo_id = None
+    _prod_a = None  # to be used in combo/order
+    _prod_b = None  # product with modifier group
+    _order_id = None
+    _prod_a_qty0 = 30
+    _prod_b_qty0 = 30
+    _saved_config = None
+
+    # ---------- config (defaults + persistence) --------------------------
+    def test_get_pos_config_defaults(self, admin_session):
+        r = admin_session.get(f"{API}/pos/config")
+        assert r.status_code == 200
+        c = r.json()
+        for k in ["currency_symbol", "decimals", "rounding", "default_vat_rate",
+                  "payment_methods", "receipt", "service_charge_enabled", "service_charge_percent"]:
+            assert k in c
+        assert isinstance(c["payment_methods"], list) and len(c["payment_methods"]) >= 3
+        TestPOSConfig._saved_config = c
+
+    def test_put_pos_config_persists(self, admin_session):
+        c = TestPOSConfig._saved_config
+        payload = {
+            "currency_symbol": c["currency_symbol"],
+            "decimals": 2,
+            "rounding": "0.05",
+            "track_stock_default": True,
+            "service_charge_enabled": True,
+            "service_charge_percent": 10.0,
+            "default_vat_rate": 23.0,
+            "payment_methods": c["payment_methods"],
+            "receipt": {"name": "TEST RESTAURANTE", "nif": "500000000",
+                        "address": "Rua X", "phone": "912345678", "footer": "TESTE"},
+        }
+        r = admin_session.put(f"{API}/pos/config", json=payload)
+        assert r.status_code == 200, r.text
+        # reload and check
+        r2 = admin_session.get(f"{API}/pos/config")
+        d = r2.json()
+        assert d["rounding"] == "0.05"
+        assert d["service_charge_enabled"] is True
+        assert d["service_charge_percent"] == 10.0
+        assert d["receipt"]["name"] == "TEST RESTAURANTE"
+        assert d["receipt"]["nif"] == "500000000"
+
+    # ---------- zones + tables + bulk ------------------------------------
+    def test_create_zone(self, admin_session):
+        r = admin_session.post(f"{API}/pos/zones", json={"name": f"TEST_Zona_{uuid.uuid4().hex[:5]}", "order": 99})
+        assert r.status_code == 200, r.text
+        TestPOSConfig._zone_id = r.json()["id"]
+
+    def test_list_zones_contains(self, admin_session):
+        r = admin_session.get(f"{API}/pos/zones")
+        assert r.status_code == 200
+        assert any(z["id"] == TestPOSConfig._zone_id for z in r.json())
+
+    def test_create_single_table(self, admin_session):
+        r = admin_session.post(f"{API}/pos/tables", json={
+            "name": "TEST Mesa 1", "zone_id": TestPOSConfig._zone_id, "seats": 4, "order": 0
+        })
+        assert r.status_code == 200, r.text
+        TestPOSConfig._table_id = r.json()["id"]
+
+    def test_bulk_tables(self, admin_session):
+        # bulk endpoint uses query params
+        r = admin_session.post(
+            f"{API}/pos/tables/bulk",
+            params={"zone_id": TestPOSConfig._zone_id, "count": 3, "prefix": "TESTM"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["created"] == 3
+        # verify listing
+        tables = admin_session.get(f"{API}/pos/tables").json()
+        in_zone = [t for t in tables if t.get("zone_id") == TestPOSConfig._zone_id]
+        assert len(in_zone) >= 4  # 1 single + 3 bulk
+
+    # ---------- categories ----------------------------------------------
+    def test_create_category(self, admin_session):
+        r = admin_session.post(f"{API}/pos/categories", json={
+            "name": f"TEST_Cat_{uuid.uuid4().hex[:5]}", "color": "#ff0000", "order": 1,
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["color"] == "#ff0000"
+        TestPOSConfig._cat_id = d["id"]
+        # persistence
+        r2 = admin_session.get(f"{API}/pos/categories")
+        assert any(c["id"] == TestPOSConfig._cat_id for c in r2.json())
+
+    # ---------- modifier groups -----------------------------------------
+    def test_create_modifier_group(self, admin_session):
+        r = admin_session.post(f"{API}/pos/modifier-groups", json={
+            "name": f"TEST_Mod_{uuid.uuid4().hex[:5]}", "min": 0, "max": 2, "required": False,
+            "options": [
+                {"name": "Extra queijo", "price_delta": 1.0},
+                {"name": "Sem cebola", "price_delta": 0.0},
+            ],
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert len(d["options"]) == 2
+        assert d["options"][0]["price_delta"] == 1.0
+        assert d["options"][0]["id"]  # auto id
+        TestPOSConfig._mod_group_id = d["id"]
+        TestPOSConfig._mod_opt_id = d["options"][0]["id"]  # +1€ option
+        # persistence
+        r2 = admin_session.get(f"{API}/pos/modifier-groups")
+        assert any(g["id"] == TestPOSConfig._mod_group_id for g in r2.json())
+
+    # ---------- products (with cat + vat + modifier) --------------------
+    def test_create_product_A_and_B(self, admin_session):
+        rA = admin_session.post(f"{API}/products", json={
+            "name": f"TEST_ProdA_{uuid.uuid4().hex[:4]}",
+            "category_id": TestPOSConfig._cat_id,
+            "quantity": TestPOSConfig._prod_a_qty0, "sale_price": 3.0, "cost_price": 1.0,
+            "vat_rate": 13.0, "min_quantity": 0, "track_stock": True,
+        })
+        assert rA.status_code == 200, rA.text
+        TestPOSConfig._prod_a = rA.json()
+        assert TestPOSConfig._prod_a["vat_rate"] == 13.0
+        rB = admin_session.post(f"{API}/products", json={
+            "name": f"TEST_ProdB_{uuid.uuid4().hex[:4]}",
+            "category_id": TestPOSConfig._cat_id,
+            "quantity": TestPOSConfig._prod_b_qty0, "sale_price": 10.0, "cost_price": 2.0,
+            "vat_rate": 23.0, "min_quantity": 0, "track_stock": True,
+            "modifier_group_ids": [TestPOSConfig._mod_group_id],
+        })
+        assert rB.status_code == 200, rB.text
+        TestPOSConfig._prod_b = rB.json()
+        assert TestPOSConfig._mod_group_id in TestPOSConfig._prod_b.get("modifier_group_ids", [])
+
+    # ---------- combos --------------------------------------------------
+    def test_create_combo(self, admin_session):
+        r = admin_session.post(f"{API}/pos/combos", json={
+            "name": f"TEST_Combo_{uuid.uuid4().hex[:5]}",
+            "price": 12.0, "vat_rate": 13.0, "active": True,
+            "items": [
+                {"product_id": TestPOSConfig._prod_a["id"], "quantity": 1},
+                {"product_id": TestPOSConfig._prod_b["id"], "quantity": 1},
+            ],
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["price"] == 12.0
+        assert len(d["items"]) == 2
+        TestPOSConfig._combo_id = d["id"]
+
+    # ---------- open order by table_id (dedupe) -------------------------
+    def test_open_order_by_table_id(self, admin_session):
+        r = admin_session.post(f"{API}/orders", json={"table_id": TestPOSConfig._table_id})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["status"] == "aberta"
+        assert d["table_id"] == TestPOSConfig._table_id
+        assert d.get("zone_id") == TestPOSConfig._zone_id
+        TestPOSConfig._order_id = d["id"]
+
+    def test_open_same_table_returns_same_order(self, admin_session):
+        r = admin_session.post(f"{API}/orders", json={"table_id": TestPOSConfig._table_id})
+        assert r.status_code == 200
+        assert r.json()["id"] == TestPOSConfig._order_id, "Should NOT create duplicate order"
+
+    # ---------- add product with modifier: unit_price += delta ---------
+    def test_add_product_with_modifier(self, admin_session):
+        r = admin_session.post(f"{API}/orders/{TestPOSConfig._order_id}/items", json={
+            "kind": "product",
+            "ref_id": TestPOSConfig._prod_b["id"],
+            "quantity": 2,
+            "modifiers": [{"group_id": TestPOSConfig._mod_group_id, "option_id": TestPOSConfig._mod_opt_id}],
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        item = d["items"][-1]
+        # unit price 10 + 1 (extra queijo) = 11, x2 = 22
+        assert item["unit_price"] == 11.0
+        assert item["line_total"] == 22.0
+        assert item["modifiers"][0]["name"] == "Extra queijo"
+        # stock B deducted by 2
+        p = next(x for x in admin_session.get(f"{API}/products").json() if x["id"] == TestPOSConfig._prod_b["id"])
+        assert p["quantity"] == TestPOSConfig._prod_b_qty0 - 2
+
+    # ---------- add combo: components deducted from stock --------------
+    def test_add_combo_deducts_components(self, admin_session):
+        r = admin_session.post(f"{API}/orders/{TestPOSConfig._order_id}/items", json={
+            "kind": "combo",
+            "ref_id": TestPOSConfig._combo_id,
+            "quantity": 1,
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        combo_item = d["items"][-1]
+        assert combo_item["kind"] == "combo"
+        assert combo_item["line_total"] == 12.0
+        # A and B each -1 more
+        prods = admin_session.get(f"{API}/products").json()
+        pa = next(x for x in prods if x["id"] == TestPOSConfig._prod_a["id"])
+        pb = next(x for x in prods if x["id"] == TestPOSConfig._prod_b["id"])
+        assert pa["quantity"] == TestPOSConfig._prod_a_qty0 - 1
+        assert pb["quantity"] == TestPOSConfig._prod_b_qty0 - 3  # -2 (mod) -1 (combo)
+
+    # ---------- discount % + service charge -----------------------------
+    def test_patch_discount_percent_and_service(self, admin_session):
+        r = admin_session.patch(f"{API}/orders/{TestPOSConfig._order_id}", json={
+            "discount_type": "percent", "discount_value": 10.0, "service_charge_enabled": True,
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        # subtotal = 22 + 12 = 34; 10% discount = 3.4 -> after = 30.6; service 10% = 3.06 -> raw total 33.66 rounded to 0.05 => 33.65
+        assert d["subtotal"] == 34.0
+        assert d["discount_amount"] == 3.4
+        assert d["service_charge_amount"] == 3.06
+        # rounding "0.05" was set in earlier test
+        assert abs(d["total"] - 33.65) < 0.01 or abs(d["total"] - 33.66) < 0.01
+        # VAT breakdown must be non-empty and include both rates
+        rates = {v["rate"] for v in d["vat_breakdown"]}
+        assert 23.0 in rates and 13.0 in rates
+
+    # ---------- close order with payments (change) ---------------------
+    def test_close_order_with_payment_and_change(self, admin_session):
+        # get current total
+        cur = next(o for o in admin_session.get(f"{API}/orders?status=aberta").json() if o["id"] == TestPOSConfig._order_id)
+        total = cur["total"]
+        pay_amt = round(total + 5.0, 2)  # pay 5€ extra -> change 5
+        r = admin_session.post(f"{API}/orders/{TestPOSConfig._order_id}/close", json={
+            "payments": [{"method": "Dinheiro", "amount": pay_amt}],
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["status"] == "paga"
+        assert d["amount_paid"] == pay_amt
+        assert abs(d["change"] - 5.0) < 0.01
+        assert d["closed_at"]
+
+    def test_close_insufficient_payment_400(self, admin_session):
+        # open a fresh order, add item, try pay less
+        o = admin_session.post(f"{API}/orders", json={"table_name": "TEST Insuf"}).json()
+        admin_session.post(f"{API}/orders/{o['id']}/items", json={
+            "kind": "product", "ref_id": TestPOSConfig._prod_a["id"], "quantity": 1,
+        })
+        r = admin_session.post(f"{API}/orders/{o['id']}/close", json={
+            "payments": [{"method": "Dinheiro", "amount": 0.5}],
+        })
+        assert r.status_code == 400
+        # cleanup
+        admin_session.delete(f"{API}/orders/{o['id']}")
+
+    # ---------- cleanup --------------------------------------------------
+    def test_zz_cleanup_pos(self, admin_session):
+        # restore config to defaults (disable service, rounding=none)
+        if TestPOSConfig._saved_config:
+            c = TestPOSConfig._saved_config
+            admin_session.put(f"{API}/pos/config", json={
+                "currency_symbol": c.get("currency_symbol", "€"),
+                "decimals": int(c.get("decimals", 2)),
+                "rounding": c.get("rounding", "none"),
+                "track_stock_default": c.get("track_stock_default", True),
+                "service_charge_enabled": c.get("service_charge_enabled", False),
+                "service_charge_percent": c.get("service_charge_percent", 0.0),
+                "default_vat_rate": c.get("default_vat_rate", 23.0),
+                "payment_methods": c.get("payment_methods", []),
+                "receipt": c.get("receipt", {}),
+            })
+        # delete combo, mod group, category, zone (cascade tables), products
+        if TestPOSConfig._combo_id:
+            admin_session.delete(f"{API}/pos/combos/{TestPOSConfig._combo_id}")
+        if TestPOSConfig._mod_group_id:
+            admin_session.delete(f"{API}/pos/modifier-groups/{TestPOSConfig._mod_group_id}")
+        if TestPOSConfig._cat_id:
+            admin_session.delete(f"{API}/pos/categories/{TestPOSConfig._cat_id}")
+        if TestPOSConfig._zone_id:
+            admin_session.delete(f"{API}/pos/zones/{TestPOSConfig._zone_id}")
+        for p in (TestPOSConfig._prod_a, TestPOSConfig._prod_b):
+            if p:
+                admin_session.delete(f"{API}/products/{p['id']}")

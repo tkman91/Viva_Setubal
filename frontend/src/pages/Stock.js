@@ -16,32 +16,43 @@ const btnPrimary = "px-4 py-2 bg-primary text-primary-foreground font-semibold t
 
 export default function Stock() {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [modGroups, setModGroups] = useState([]);
   const [open, setOpen] = useState(false);
   const [moveProduct, setMoveProduct] = useState(null);
-  const [form, setForm] = useState({ name: "", category: "Geral", unit: "un", quantity: 0, min_quantity: 0, cost_price: 0, sale_price: 0 });
+  const [form, setForm] = useState({ name: "", category: "Geral", category_id: "", unit: "un", quantity: 0, min_quantity: 0, cost_price: 0, sale_price: 0, vat_rate: 23, track_stock: true, modifier_group_ids: [] });
   const [move, setMove] = useState({ type: "entrada", quantity: 1, note: "" });
 
   const load = useCallback(() => api.get("/products").then((r) => setProducts(r.data)), []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    api.get("/pos/categories").then((r) => setCategories(r.data)).catch(() => {});
+    api.get("/pos/modifier-groups").then((r) => setModGroups(r.data)).catch(() => {});
+  }, [load]);
 
   const addProduct = async (e) => {
     e.preventDefault();
     try {
+      const cat = categories.find((c) => c.id === form.category_id);
       await api.post("/products", {
         ...form,
+        category: cat ? cat.name : (form.category || "Geral"),
         quantity: Number(form.quantity),
         min_quantity: Number(form.min_quantity),
         cost_price: Number(form.cost_price),
         sale_price: Number(form.sale_price),
+        vat_rate: Number(form.vat_rate),
       });
       toast.success("Produto adicionado");
       setOpen(false);
-      setForm({ name: "", category: "Geral", unit: "un", quantity: 0, min_quantity: 0, cost_price: 0, sale_price: 0 });
+      setForm({ name: "", category: "Geral", category_id: "", unit: "un", quantity: 0, min_quantity: 0, cost_price: 0, sale_price: 0, vat_rate: 23, track_stock: true, modifier_group_ids: [] });
       load();
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail));
     }
   };
+
+  const toggleMod = (id) => setForm((f) => ({ ...f, modifier_group_ids: f.modifier_group_ids.includes(id) ? f.modifier_group_ids.filter((x) => x !== id) : [...f.modifier_group_ids, id] }));
 
   const submitMove = async (e) => {
     e.preventDefault();
@@ -76,13 +87,37 @@ export default function Stock() {
             <form onSubmit={addProduct} className="space-y-3">
               <input data-testid="input-product-name" required placeholder="Nome" className={field} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <div className="grid grid-cols-2 gap-3">
-                <input placeholder="Categoria" className={field} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-                <input placeholder="Unidade (un, kg, L)" className={field} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
+                <div>
+                  <label className="label-tech">Categoria</label>
+                  <select data-testid="select-product-category" className={field} value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}>
+                    <option value="">Geral</option>
+                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div><label className="label-tech">Unidade</label><input placeholder="un, kg, L" className={field} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></div>
                 <div><label className="label-tech">Quantidade</label><input data-testid="input-product-qty" type="number" step="any" className={field} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></div>
                 <div><label className="label-tech">Stock mínimo</label><input type="number" step="any" className={field} value={form.min_quantity} onChange={(e) => setForm({ ...form, min_quantity: e.target.value })} /></div>
                 <div><label className="label-tech">Preço custo €</label><input type="number" step="any" className={field} value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} /></div>
                 <div><label className="label-tech">Preço venda €</label><input type="number" step="any" className={field} value={form.sale_price} onChange={(e) => setForm({ ...form, sale_price: e.target.value })} /></div>
+                <div>
+                  <label className="label-tech">IVA</label>
+                  <select data-testid="select-product-vat" className={field} value={form.vat_rate} onChange={(e) => setForm({ ...form, vat_rate: e.target.value })}>
+                    {[23, 13, 6, 0].map((r) => <option key={r} value={r}>{r}%</option>)}
+                  </select>
+                </div>
+                <label className="flex items-center gap-2 text-sm pt-5"><input data-testid="chk-product-track" type="checkbox" checked={form.track_stock} onChange={(e) => setForm({ ...form, track_stock: e.target.checked })} /> Controlar stock</label>
               </div>
+              {modGroups.length > 0 && (
+                <div>
+                  <label className="label-tech block mb-1">Modificadores</label>
+                  <div className="flex flex-wrap gap-1">
+                    {modGroups.map((g) => (
+                      <button type="button" key={g.id} data-testid={`prod-mod-${g.id}`} onClick={() => toggleMod(g.id)}
+                        className={`px-2 py-1 border text-xs ${form.modifier_group_ids.includes(g.id) ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}>{g.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <button data-testid="btn-save-product" className={btnPrimary + " w-full"}>Guardar</button>
             </form>
           </DialogContent>

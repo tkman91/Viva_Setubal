@@ -21,4 +21,11 @@ export function num(v) {
   return new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 2 }).format(v || 0);
 }
 
+export function fmtMoney(v, cfg) {
+  const d = cfg?.decimals ?? 2;
+  const sym = cfg?.currency_symbol ?? "€";
+  const n = new Intl.NumberFormat("pt-PT", { minimumFractionDigits: d, maximumFractionDigits: d }).format(v || 0);
+  return `${n} ${sym}`;
+}
+
 export default api;

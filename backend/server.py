@@ -182,21 +182,29 @@ class StaffUpdate(BaseModel):
 class ProductCreate(BaseModel):
     name: str
     category: str = "Geral"
+    category_id: Optional[str] = None
     unit: str = "un"
     quantity: float = 0.0
     min_quantity: float = 0.0
     cost_price: float = 0.0
     sale_price: float = 0.0
+    vat_rate: float = 23.0
+    track_stock: bool = True
+    modifier_group_ids: List[str] = Field(default_factory=list)
 
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
+    category_id: Optional[str] = None
     unit: Optional[str] = None
     quantity: Optional[float] = None
     min_quantity: Optional[float] = None
     cost_price: Optional[float] = None
     sale_price: Optional[float] = None
+    vat_rate: Optional[float] = None
+    track_stock: Optional[bool] = None
+    modifier_group_ids: Optional[List[str]] = None
 
 
 class StockMovementInput(BaseModel):
@@ -225,13 +233,128 @@ class SettingsInput(BaseModel):
     radius_m: float = 100.0
 
 
+# --- POS configuração ---
+class ZoneInput(BaseModel):
+    name: str
+    order: int = 0
+
+
+class TableInput(BaseModel):
+    name: str
+    zone_id: Optional[str] = None
+    seats: int = 4
+    order: int = 0
+
+
+class CategoryInput(BaseModel):
+    name: str
+    color: str = "#111827"
+    order: int = 0
+
+
+class ModifierOption(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    price_delta: float = 0.0
+
+
+class ModifierGroupInput(BaseModel):
+    name: str
+    min: int = 0
+    max: int = 1
+    required: bool = False
+    options: List[ModifierOption] = Field(default_factory=list)
+
+
+class ComboItem(BaseModel):
+    product_id: str
+    quantity: float = 1.0
+
+
+class ComboInput(BaseModel):
+    name: str
+    price: float = 0.0
+    vat_rate: float = 23.0
+    items: List[ComboItem] = Field(default_factory=list)
+    active: bool = True
+
+
+class PaymentMethod(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    enabled: bool = True
+
+
+class ReceiptConfig(BaseModel):
+    name: str = ""
+    nif: str = ""
+    address: str = ""
+    phone: str = ""
+    footer: str = "Obrigado pela preferência!"
+
+
+class POSConfigInput(BaseModel):
+    currency_symbol: str = "€"
+    decimals: int = 2
+    rounding: str = "none"  # none | 0.05 | 0.10
+    track_stock_default: bool = True
+    service_charge_enabled: bool = False
+    service_charge_percent: float = 0.0
+    default_vat_rate: float = 23.0
+    payment_methods: List[PaymentMethod] = Field(default_factory=list)
+    receipt: ReceiptConfig = Field(default_factory=ReceiptConfig)
+
+
+DEFAULT_POS_CONFIG = {
+    "id": "main",
+    "currency_symbol": "€",
+    "decimals": 2,
+    "rounding": "none",
+    "track_stock_default": True,
+    "service_charge_enabled": False,
+    "service_charge_percent": 0.0,
+    "default_vat_rate": 23.0,
+    "payment_methods": [
+        {"id": str(uuid.uuid4()), "name": "Dinheiro", "enabled": True},
+        {"id": str(uuid.uuid4()), "name": "Multibanco", "enabled": True},
+        {"id": str(uuid.uuid4()), "name": "MB Way", "enabled": True},
+    ],
+    "receipt": {"name": "", "nif": "", "address": "", "phone": "", "footer": "Obrigado pela preferência!"},
+}
+
+
+# --- Encomendas / POS ---
 class OrderCreate(BaseModel):
-    table_name: str
+    table_id: Optional[str] = None
+    table_name: Optional[str] = None
+
+
+class SelectedModifier(BaseModel):
+    group_id: Optional[str] = None
+    option_id: str
 
 
 class OrderItemInput(BaseModel):
-    product_id: str
+    kind: str = "product"  # product | combo
+    ref_id: str
     quantity: float = 1.0
+    modifiers: List[SelectedModifier] = Field(default_factory=list)
+    notes: Optional[str] = ""
+
+
+class OrderPatch(BaseModel):
+    discount_type: Optional[str] = None  # none | percent | fixed
+    discount_value: Optional[float] = None
+    service_charge_enabled: Optional[bool] = None
+
+
+class PaymentEntry(BaseModel):
+    method: str
+    amount: float
+
+
+class OrderClose(BaseModel):
+    payments: List[PaymentEntry] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -494,10 +617,217 @@ async def list_consumption(user: dict = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
-# Registadora / Mesas (cada item desconta stock automaticamente)
+# POS — Configuração (config, zonas, mesas, categorias, modificadores, combos)
 # ---------------------------------------------------------------------------
-def _order_total(items):
-    return round(sum(i["line_total"] for i in items), 2)
+async def get_pos_config() -> dict:
+    cfg = await db.pos_config.find_one({"id": "main"}, {"_id": 0})
+    if not cfg:
+        await db.pos_config.insert_one(dict(DEFAULT_POS_CONFIG))
+        cfg = await db.pos_config.find_one({"id": "main"}, {"_id": 0})
+    return cfg
+
+
+@api_router.get("/pos/config")
+async def read_pos_config(user: dict = Depends(get_current_user)):
+    return await get_pos_config()
+
+
+@api_router.put("/pos/config")
+async def update_pos_config(data: POSConfigInput, user: dict = Depends(require_admin)):
+    doc = {"id": "main", **data.model_dump()}
+    await db.pos_config.update_one({"id": "main"}, {"$set": doc}, upsert=True)
+    return doc
+
+
+@api_router.get("/pos/zones")
+async def list_zones(user: dict = Depends(get_current_user)):
+    return await db.pos_zones.find({}, {"_id": 0}).sort("order", 1).to_list(200)
+
+
+@api_router.post("/pos/zones")
+async def create_zone(data: ZoneInput, user: dict = Depends(require_admin)):
+    doc = {"id": str(uuid.uuid4()), **data.model_dump()}
+    await db.pos_zones.insert_one(doc)
+    return clean(dict(doc))
+
+
+@api_router.put("/pos/zones/{zone_id}")
+async def update_zone(zone_id: str, data: ZoneInput, user: dict = Depends(require_admin)):
+    await db.pos_zones.update_one({"id": zone_id}, {"$set": data.model_dump()})
+    return await db.pos_zones.find_one({"id": zone_id}, {"_id": 0})
+
+
+@api_router.delete("/pos/zones/{zone_id}")
+async def delete_zone(zone_id: str, user: dict = Depends(require_admin)):
+    await db.pos_zones.delete_one({"id": zone_id})
+    await db.pos_tables.delete_many({"zone_id": zone_id})
+    return {"ok": True}
+
+
+@api_router.get("/pos/tables")
+async def list_tables(user: dict = Depends(get_current_user)):
+    return await db.pos_tables.find({}, {"_id": 0}).sort("order", 1).to_list(500)
+
+
+@api_router.post("/pos/tables")
+async def create_table(data: TableInput, user: dict = Depends(require_admin)):
+    doc = {"id": str(uuid.uuid4()), **data.model_dump()}
+    await db.pos_tables.insert_one(doc)
+    return clean(dict(doc))
+
+
+@api_router.post("/pos/tables/bulk")
+async def create_tables_bulk(zone_id: str, count: int, prefix: str = "Mesa", user: dict = Depends(require_admin)):
+    existing = await db.pos_tables.count_documents({"zone_id": zone_id})
+    docs = [
+        {"id": str(uuid.uuid4()), "name": f"{prefix} {existing + i + 1}", "zone_id": zone_id, "seats": 4, "order": existing + i}
+        for i in range(count)
+    ]
+    if docs:
+        await db.pos_tables.insert_many(docs)
+    return {"created": len(docs)}
+
+
+@api_router.put("/pos/tables/{table_id}")
+async def update_table(table_id: str, data: TableInput, user: dict = Depends(require_admin)):
+    await db.pos_tables.update_one({"id": table_id}, {"$set": data.model_dump()})
+    return await db.pos_tables.find_one({"id": table_id}, {"_id": 0})
+
+
+@api_router.delete("/pos/tables/{table_id}")
+async def delete_table(table_id: str, user: dict = Depends(require_admin)):
+    await db.pos_tables.delete_one({"id": table_id})
+    return {"ok": True}
+
+
+@api_router.get("/pos/categories")
+async def list_categories(user: dict = Depends(get_current_user)):
+    return await db.pos_categories.find({}, {"_id": 0}).sort("order", 1).to_list(200)
+
+
+@api_router.post("/pos/categories")
+async def create_category(data: CategoryInput, user: dict = Depends(require_admin)):
+    doc = {"id": str(uuid.uuid4()), **data.model_dump()}
+    await db.pos_categories.insert_one(doc)
+    return clean(dict(doc))
+
+
+@api_router.put("/pos/categories/{cat_id}")
+async def update_category(cat_id: str, data: CategoryInput, user: dict = Depends(require_admin)):
+    await db.pos_categories.update_one({"id": cat_id}, {"$set": data.model_dump()})
+    return await db.pos_categories.find_one({"id": cat_id}, {"_id": 0})
+
+
+@api_router.delete("/pos/categories/{cat_id}")
+async def delete_category(cat_id: str, user: dict = Depends(require_admin)):
+    await db.pos_categories.delete_one({"id": cat_id})
+    return {"ok": True}
+
+
+@api_router.get("/pos/modifier-groups")
+async def list_modifier_groups(user: dict = Depends(get_current_user)):
+    return await db.pos_modifiers.find({}, {"_id": 0}).to_list(200)
+
+
+@api_router.post("/pos/modifier-groups")
+async def create_modifier_group(data: ModifierGroupInput, user: dict = Depends(require_admin)):
+    doc = {"id": str(uuid.uuid4()), **data.model_dump()}
+    await db.pos_modifiers.insert_one(doc)
+    return clean(dict(doc))
+
+
+@api_router.put("/pos/modifier-groups/{group_id}")
+async def update_modifier_group(group_id: str, data: ModifierGroupInput, user: dict = Depends(require_admin)):
+    await db.pos_modifiers.update_one({"id": group_id}, {"$set": data.model_dump()})
+    return await db.pos_modifiers.find_one({"id": group_id}, {"_id": 0})
+
+
+@api_router.delete("/pos/modifier-groups/{group_id}")
+async def delete_modifier_group(group_id: str, user: dict = Depends(require_admin)):
+    await db.pos_modifiers.delete_one({"id": group_id})
+    return {"ok": True}
+
+
+@api_router.get("/pos/combos")
+async def list_combos(user: dict = Depends(get_current_user)):
+    return await db.pos_combos.find({}, {"_id": 0}).to_list(200)
+
+
+@api_router.post("/pos/combos")
+async def create_combo(data: ComboInput, user: dict = Depends(require_admin)):
+    doc = {"id": str(uuid.uuid4()), **data.model_dump()}
+    await db.pos_combos.insert_one(doc)
+    return clean(dict(doc))
+
+
+@api_router.put("/pos/combos/{combo_id}")
+async def update_combo(combo_id: str, data: ComboInput, user: dict = Depends(require_admin)):
+    await db.pos_combos.update_one({"id": combo_id}, {"$set": data.model_dump()})
+    return await db.pos_combos.find_one({"id": combo_id}, {"_id": 0})
+
+
+@api_router.delete("/pos/combos/{combo_id}")
+async def delete_combo(combo_id: str, user: dict = Depends(require_admin)):
+    await db.pos_combos.delete_one({"id": combo_id})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Registadora / Mesas — encomendas com modificadores, IVA, desconto, pagamento
+# ---------------------------------------------------------------------------
+def round_money(v: float, rounding: str) -> float:
+    if rounding == "0.05":
+        return round(round(v / 0.05) * 0.05, 2)
+    if rounding == "0.10":
+        return round(round(v / 0.10) * 0.10, 2)
+    return round(v, 2)
+
+
+def compute_order(order: dict, config: dict) -> dict:
+    items = order.get("items", [])
+    subtotal = round(sum(i["line_total"] for i in items), 2)
+    dtype = order.get("discount_type", "none")
+    dval = order.get("discount_value", 0.0) or 0.0
+    if dtype == "percent":
+        discount_amount = round(subtotal * dval / 100, 2)
+    elif dtype == "fixed":
+        discount_amount = round(min(dval, subtotal), 2)
+    else:
+        discount_amount = 0.0
+    after = round(subtotal - discount_amount, 2)
+    ratio = (after / subtotal) if subtotal > 0 else 0.0
+    svc_enabled = order.get("service_charge_enabled", False)
+    svc_pct = config.get("service_charge_percent", 0.0) or 0.0
+    service_charge_amount = round(after * svc_pct / 100, 2) if svc_enabled else 0.0
+    total_raw = after + service_charge_amount
+    total = round_money(total_raw, config.get("rounding", "none"))
+    default_vat = config.get("default_vat_rate", 23.0)
+    rates: dict = {}
+    for i in items:
+        r = i.get("vat_rate", default_vat)
+        rates[r] = rates.get(r, 0.0) + i["line_total"] * ratio
+    if service_charge_amount:
+        rates[default_vat] = rates.get(default_vat, 0.0) + service_charge_amount
+    vat_breakdown = []
+    for r, gross in sorted(rates.items()):
+        net = gross / (1 + r / 100) if r else gross
+        vat_breakdown.append({"rate": r, "base": round(net, 2), "vat": round(gross - net, 2)})
+    order["subtotal"] = subtotal
+    order["discount_amount"] = discount_amount
+    order["service_charge_amount"] = service_charge_amount
+    order["total"] = total
+    order["vat_breakdown"] = vat_breakdown
+    return order
+
+
+async def _apply_stock(deductions: list, sign: int):
+    for d in deductions:
+        prod = await db.products.find_one({"id": d["product_id"]})
+        if prod:
+            await db.products.update_one(
+                {"id": d["product_id"]},
+                {"$set": {"quantity": round(prod["quantity"] + sign * d["quantity"], 3)}},
+            )
 
 
 @api_router.get("/orders")
@@ -510,12 +840,42 @@ async def list_orders(status: Optional[str] = None, user: dict = Depends(require
 
 @api_router.post("/orders")
 async def open_order(data: OrderCreate, user: dict = Depends(require_permission("faturacao"))):
+    table_name = data.table_name
+    zone_id = None
+    zone_name = None
+    if data.table_id:
+        table = await db.pos_tables.find_one({"id": data.table_id}, {"_id": 0})
+        if not table:
+            raise HTTPException(status_code=404, detail="Mesa não encontrada")
+        existing = await db.orders.find_one({"table_id": data.table_id, "status": "aberta"}, {"_id": 0})
+        if existing:
+            return existing
+        table_name = table["name"]
+        zone_id = table.get("zone_id")
+        if zone_id:
+            z = await db.pos_zones.find_one({"id": zone_id}, {"_id": 0})
+            zone_name = z["name"] if z else None
+    if not table_name:
+        raise HTTPException(status_code=400, detail="Indique a mesa")
     doc = {
         "id": str(uuid.uuid4()),
-        "table_name": data.table_name,
+        "table_id": data.table_id,
+        "table_name": table_name,
+        "zone_id": zone_id,
+        "zone_name": zone_name,
         "status": "aberta",
         "items": [],
+        "discount_type": "none",
+        "discount_value": 0.0,
+        "discount_amount": 0.0,
+        "service_charge_enabled": False,
+        "service_charge_amount": 0.0,
+        "subtotal": 0.0,
         "total": 0.0,
+        "vat_breakdown": [],
+        "payments": [],
+        "amount_paid": 0.0,
+        "change": 0.0,
         "opened_by": user["name"],
         "created_at": now_iso(),
         "closed_at": None,
@@ -531,25 +891,68 @@ async def add_order_item(order_id: str, data: OrderItemInput, user: dict = Depen
         raise HTTPException(status_code=404, detail="Mesa não encontrada")
     if order["status"] != "aberta":
         raise HTTPException(status_code=400, detail="Mesa já fechada")
-    product = await db.products.find_one({"id": data.product_id})
-    if not product:
-        raise HTTPException(status_code=404, detail="Produto não encontrado")
-    new_qty = round(product["quantity"] - data.quantity, 3)
-    if new_qty < 0:
-        raise HTTPException(status_code=400, detail="Stock insuficiente")
-    await db.products.update_one({"id": data.product_id}, {"$set": {"quantity": new_qty}})
+    config = await get_pos_config()
+    deductions = []
+    mods_out = []
+    if data.kind == "combo":
+        combo = await db.pos_combos.find_one({"id": data.ref_id})
+        if not combo:
+            raise HTTPException(status_code=404, detail="Menu/combo não encontrado")
+        name = combo["name"]
+        unit_price = combo.get("price", 0.0)
+        vat_rate = combo.get("vat_rate", config.get("default_vat_rate", 23.0))
+        for ci in combo.get("items", []):
+            prod = await db.products.find_one({"id": ci["product_id"]})
+            if prod and prod.get("track_stock", True):
+                need = ci["quantity"] * data.quantity
+                if round(prod["quantity"] - need, 3) < 0:
+                    raise HTTPException(status_code=400, detail=f"Stock insuficiente: {prod['name']}")
+                deductions.append({"product_id": ci["product_id"], "quantity": need})
+    else:
+        product = await db.products.find_one({"id": data.ref_id})
+        if not product:
+            raise HTTPException(status_code=404, detail="Produto não encontrado")
+        name = product["name"]
+        unit_price = product.get("sale_price", 0.0)
+        vat_rate = product.get("vat_rate", config.get("default_vat_rate", 23.0))
+        # modificadores
+        if data.modifiers:
+            groups = await db.pos_modifiers.find({}, {"_id": 0}).to_list(500)
+            opt_map = {}
+            for g in groups:
+                for o in g.get("options", []):
+                    opt_map[o["id"]] = o
+            for sm in data.modifiers:
+                o = opt_map.get(sm.option_id)
+                if o:
+                    unit_price += o.get("price_delta", 0.0)
+                    mods_out.append({"name": o["name"], "price_delta": o.get("price_delta", 0.0)})
+        if product.get("track_stock", True):
+            if round(product["quantity"] - data.quantity, 3) < 0:
+                raise HTTPException(status_code=400, detail="Stock insuficiente")
+            deductions.append({"product_id": data.ref_id, "quantity": data.quantity})
+    await _apply_stock(deductions, -1)
     item = {
         "id": str(uuid.uuid4()),
-        "product_id": data.product_id,
-        "product_name": product["name"],
+        "kind": data.kind,
+        "ref_id": data.ref_id,
+        "product_name": name,
         "quantity": data.quantity,
-        "unit_price": product.get("sale_price", 0.0),
-        "line_total": round(product.get("sale_price", 0.0) * data.quantity, 2),
+        "unit_price": round(unit_price, 2),
+        "vat_rate": vat_rate,
+        "modifiers": mods_out,
+        "notes": data.notes or "",
+        "line_total": round(unit_price * data.quantity, 2),
+        "stock_deductions": deductions,
     }
-    items = order["items"] + [item]
-    total = _order_total(items)
-    await db.orders.update_one({"id": order_id}, {"$set": {"items": items, "total": total}})
-    return {"item": item, "total": total}
+    order["items"] = order["items"] + [item]
+    compute_order(order, config)
+    await db.orders.update_one({"id": order_id}, {"$set": {
+        "items": order["items"], "subtotal": order["subtotal"], "total": order["total"],
+        "discount_amount": order["discount_amount"], "service_charge_amount": order["service_charge_amount"],
+        "vat_breakdown": order["vat_breakdown"],
+    }})
+    return clean(order)
 
 
 @api_router.delete("/orders/{order_id}/items/{item_id}")
@@ -562,28 +965,63 @@ async def remove_order_item(order_id: str, item_id: str, user: dict = Depends(re
     item = next((i for i in order["items"] if i["id"] == item_id), None)
     if not item:
         raise HTTPException(status_code=404, detail="Item não encontrado")
-    prod = await db.products.find_one({"id": item["product_id"]})
-    if prod:
-        await db.products.update_one(
-            {"id": item["product_id"]}, {"$set": {"quantity": round(prod["quantity"] + item["quantity"], 3)}}
-        )
-    items = [i for i in order["items"] if i["id"] != item_id]
-    total = _order_total(items)
-    await db.orders.update_one({"id": order_id}, {"$set": {"items": items, "total": total}})
-    return {"total": total}
+    await _apply_stock(item.get("stock_deductions", []), 1)
+    order["items"] = [i for i in order["items"] if i["id"] != item_id]
+    config = await get_pos_config()
+    compute_order(order, config)
+    await db.orders.update_one({"id": order_id}, {"$set": {
+        "items": order["items"], "subtotal": order["subtotal"], "total": order["total"],
+        "discount_amount": order["discount_amount"], "service_charge_amount": order["service_charge_amount"],
+        "vat_breakdown": order["vat_breakdown"],
+    }})
+    return clean(order)
+
+
+@api_router.patch("/orders/{order_id}")
+async def patch_order(order_id: str, data: OrderPatch, user: dict = Depends(require_permission("faturacao"))):
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Mesa não encontrada")
+    if order["status"] != "aberta":
+        raise HTTPException(status_code=400, detail="Mesa já fechada")
+    upd = {k: v for k, v in data.model_dump().items() if v is not None}
+    order.update(upd)
+    config = await get_pos_config()
+    compute_order(order, config)
+    await db.orders.update_one({"id": order_id}, {"$set": {
+        "discount_type": order.get("discount_type", "none"),
+        "discount_value": order.get("discount_value", 0.0),
+        "service_charge_enabled": order.get("service_charge_enabled", False),
+        "subtotal": order["subtotal"], "total": order["total"],
+        "discount_amount": order["discount_amount"], "service_charge_amount": order["service_charge_amount"],
+        "vat_breakdown": order["vat_breakdown"],
+    }})
+    return clean(order)
 
 
 @api_router.post("/orders/{order_id}/close")
-async def close_order(order_id: str, user: dict = Depends(require_permission("faturacao"))):
+async def close_order(order_id: str, data: OrderClose, user: dict = Depends(require_permission("faturacao"))):
     order = await db.orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Mesa não encontrada")
     if not order["items"]:
         raise HTTPException(status_code=400, detail="Mesa vazia — adicione itens antes de fechar")
-    await db.orders.update_one(
-        {"id": order_id}, {"$set": {"status": "paga", "closed_at": now_iso()}}
-    )
-    return {"ok": True, "total": order["total"]}
+    config = await get_pos_config()
+    compute_order(order, config)
+    payments = [p.model_dump() for p in data.payments]
+    amount_paid = round(sum(p["amount"] for p in payments), 2)
+    if payments and amount_paid + 0.01 < order["total"]:
+        raise HTTPException(status_code=400, detail=f"Pagamento insuficiente. Falta {round(order['total'] - amount_paid, 2)}€")
+    change = round(max(amount_paid - order["total"], 0.0), 2) if payments else 0.0
+    await db.orders.update_one({"id": order_id}, {"$set": {
+        "status": "paga", "closed_at": now_iso(),
+        "payments": payments, "amount_paid": amount_paid, "change": change,
+        "subtotal": order["subtotal"], "total": order["total"],
+        "discount_amount": order["discount_amount"], "service_charge_amount": order["service_charge_amount"],
+        "vat_breakdown": order["vat_breakdown"],
+    }})
+    saved = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    return saved
 
 
 @api_router.delete("/orders/{order_id}")
@@ -593,11 +1031,7 @@ async def cancel_order(order_id: str, user: dict = Depends(require_permission("f
         raise HTTPException(status_code=404, detail="Mesa não encontrada")
     if order["status"] == "aberta":
         for it in order["items"]:
-            prod = await db.products.find_one({"id": it["product_id"]})
-            if prod:
-                await db.products.update_one(
-                    {"id": it["product_id"]}, {"$set": {"quantity": round(prod["quantity"] + it["quantity"], 3)}}
-                )
+            await _apply_stock(it.get("stock_deductions", []), 1)
     await db.orders.delete_one({"id": order_id})
     return {"ok": True}
 
