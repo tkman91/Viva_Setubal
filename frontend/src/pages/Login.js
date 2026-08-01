@@ -93,7 +93,6 @@ export default function Login() {
           >
             {loading ? "A entrar..." : "Entrar"}
           </button>
-          <p className="text-xs text-muted-foreground mt-6 mono">admin@restaurante.pt / admin123</p>
         </form>
       </div>
     </div>
