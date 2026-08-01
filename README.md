@@ -1,8 +1,11 @@
 # 🍽️ Gestão de Restaurante
 
-Aplicação full-stack para gestão de restaurante: **controlo de stock**, **picagem de ponto com geolocalização**, **gestão de staff e permissões**, **consumo do staff** e **faturação** (estrutura preparada para integração externa).
+Aplicação full-stack para gestão de restaurante: **controlo de stock**, **picagem de ponto com geolocalização**, **gestão de staff com permissões por módulo**, **consumo do staff** e uma **registadora (POS) com mesas** que desconta o stock automaticamente.
 
-**Stack:** React 19 + FastAPI + MongoDB · Interface PT-PT · Moeda €
+**Stack:** React 19 + FastAPI + MongoDB · Interface PT-PT · Moeda € · Auth por cookie httpOnly
+
+> 🚀 **Deploy numa VM / HTTPS:** ver [`DEPLOY_UBUNTU.md`](./DEPLOY_UBUNTU.md) e os scripts em [`scripts/`](./scripts).
+> 🔑 **Permissões:** só o `admin` tem acesso total; o admin escolhe por módulo o que cada `gestor`/`funcionario` vê.
 
 ---
 

@@ -21,6 +21,8 @@ frontend/.env
 # Testes
 test_reports/
 .pytest_cache/
+.ruff_cache/
+test_result.md
 
 # Sistema
 .DS_Store

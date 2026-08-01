@@ -141,6 +141,30 @@ sudo systemctl enable --now viva-backend
 
 ---
 
+## 🔒 HTTPS (Nginx reverse proxy)
+
+Recomendado: Nginx à frente serve o frontend e faz proxy de `/api` para o uvicorn — **uma única origem HTTPS** (adeus problemas de CORS/cookies).
+
+### A) Domínio público + Let's Encrypt (cert válido)
+Pré-requisitos no router: **port-forward TCP 80 e 443** → IP da VM, e o domínio a resolver para o teu IP WAN.
+```bash
+cd ~/Viva_Setubal
+bash scripts/setup_https_letsencrypt.sh SEU_DOMINIO teu@email.pt
+```
+Mantém o `yarn start` em dev atrás do Nginx (config `deploy/nginx-restaurante-dev.conf`), emite o certificado, e acerta os `.env`
+(frontend passa a chamar `/api` na mesma origem; backend fica com `COOKIE_SECURE="true"`).
+
+### B) Só LAN (sem domínio) — certificado self-signed
+```bash
+cd ~/Viva_Setubal
+bash scripts/setup_https.sh 192.168.1.16     # serve o BUILD de produção via Nginx
+```
+
+> Depois do HTTPS acede sempre pelo **domínio/host do certificado** (não pelo IP cru).
+> Renovação Let's Encrypt: automática (`systemctl list-timers | grep certbot`).
+
+---
+
 ## Erros frequentes
 
 | Erro | Causa | Solução |
@@ -157,3 +181,4 @@ sudo systemctl enable --now viva-backend
 | `OPTIONS ... 400` continua mesmo com o `CORS_ORIGINS` aparentemente certo | `.env` não recarregado (o `--reload` do uvicorn NÃO relê o `.env`) ou origin diferente | **atalho para LAN/teste:** pôr `CORS_ORIGIN_REGEX=".*"` no `backend/.env` e **matar/reabrir** o uvicorn. Confirmar o `Origin` exato no separador Network (F12). O log do backend imprime `CORS config -> origins=... regex=...` no arranque. |
 | Browser do PC dá **timeout** em `:3000`/`:8001` mas o **SSH funciona** | Firewall a "dropar" pacotes: `ufw` na VM e/ou firewall do **Proxmox** (só o 22 está permitido) | Na VM: `sudo ufw allow 3000/tcp && sudo ufw allow 8001/tcp`. No Proxmox: **VM → Firewall** desativar (teste) ou permitir tcp 3000/8001. Arrancar o frontend com `HOST=0.0.0.0 yarn start`. |
 | `Failed to compile` / `Can't resolve src/index.js` + `[VisualEditsPlugin] ... ENOENT ... visual-edit-overlay.js` | plugin `@emergentbase/visual-edits` (editor Emergent) falha fora do Emergent e parte a compilação | `git pull` (o `craco.config.js` já ignora o plugin quando o overlay não existe). Alternativa imediata sem pull: `DISABLE_VISUAL_EDITS=true HOST=0.0.0.0 yarn start` ou `yarn remove @emergentbase/visual-edits && yarn start` |
+| `certbot` falha a validar (HTTP-01) | ISP bloqueia a porta 80 ou tens **CGNAT** (o IP WAN não é mesmo teu) | usar validação **DNS-01** (`certbot certonly --dns-<provedor>`), que não precisa de abrir portas |
