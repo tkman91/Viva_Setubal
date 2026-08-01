@@ -31,6 +31,13 @@
 - Faturação: criar faturas com linhas/IVA (23/13/6/0%), totais, nº sequencial, "Emitir" (sync simulado — INTEGRAÇÃO EXTERNA POR LIGAR).
 - Definições: localização do restaurante + raio.
 
+## PWA — App instalável (2026-08-01)
+- `public/manifest.json` (name, short_name, standalone, theme #14532d, ícones 192/512/maskable), `public/sw.js` (service worker network-first, seguro em dev e produção: salta `/api` e HMR), ícones gerados (fork/knife em verde) + favicon.
+- `index.html`: link manifest, apple-touch-icon, theme-color, apple/mobile web-app-capable, `viewport-fit=cover`.
+- `index.js`: regista o service worker (requer HTTPS — já garantido via DuckDNS).
+- Instalável no telemóvel ("Adicionar ao ecrã principal") → abre em ecrã cheio. Verificado: todos os assets servidos 200.
+- Nota: offline completo fica melhor com `yarn build` servido pelo Nginx; em `yarn start` funciona (instalável + fallback offline via network-first).
+
 ## Versão Mobile (2026-08-01)
 - **Navegação mobile**: top bar (`lg:hidden`) com botão hambúrguer → gaveta lateral (Sheet) com todos os módulos permitidos; sidebar desktop mantém-se (`hidden lg:flex`). Toque num item navega e fecha a gaveta.
 - **PageHeader responsivo**: empilha no mobile (`flex-col sm:flex-row`), fica sticky abaixo da top bar (`top-14 lg:top-0`), data escondida em ecrãs pequenos.

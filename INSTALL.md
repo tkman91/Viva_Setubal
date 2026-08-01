@@ -107,6 +107,16 @@ sudo systemctl status viva-backend --no-pager
 
 ---
 
+## 📲 Instalar como app (PWA)
+
+A app é uma **PWA instalável** (requer HTTPS — já garantido pelo DuckDNS).
+
+- **Android/Chrome:** abre `https://tkman91.duckdns.org:10443`, menu ⋮ → **"Instalar app"** / "Adicionar ao ecrã principal".
+- **iPhone/Safari:** botão **Partilhar** → **"Adicionar ao ecrã principal"**.
+- Fica um ícone no telemóvel que abre a app em **ecrã cheio** (sem barra do browser).
+
+> Para offline completo e melhor desempenho, serve o **build de produção** (`cd frontend && yarn build`) pelo Nginx em vez do `yarn start`. Com `yarn start` a app já é instalável e tem fallback offline básico.
+
 ## ✅ Verificações rápidas
 
 ```bash

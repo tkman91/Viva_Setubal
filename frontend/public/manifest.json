@@ -1,0 +1,17 @@
+{
+  "name": "Gestão Restaurante",
+  "short_name": "Gestão",
+  "description": "Gestão de restaurante: stock, picagem de ponto, staff e registadora (POS).",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#14532d",
+  "lang": "pt-PT",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
