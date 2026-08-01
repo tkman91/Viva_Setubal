@@ -13,11 +13,13 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
+import io
 
 # ---------------------------------------------------------------------------
 # DB + App setup
@@ -303,6 +305,10 @@ class POSConfigInput(BaseModel):
     default_vat_rate: float = 23.0
     payment_methods: List[PaymentMethod] = Field(default_factory=list)
     receipt: ReceiptConfig = Field(default_factory=ReceiptConfig)
+    invoice_provider: str = "none"  # none | invoicexpress | moloni | outro
+    invoice_enabled: bool = False
+    invoice_account: str = ""
+    invoice_api_key: str = ""
 
 
 DEFAULT_POS_CONFIG = {
@@ -320,6 +326,10 @@ DEFAULT_POS_CONFIG = {
         {"id": str(uuid.uuid4()), "name": "MB Way", "enabled": True},
     ],
     "receipt": {"name": "", "nif": "", "address": "", "phone": "", "footer": "Obrigado pela preferência!"},
+    "invoice_provider": "none",
+    "invoice_enabled": False,
+    "invoice_account": "",
+    "invoice_api_key": "",
 }
 
 
@@ -355,6 +365,10 @@ class PaymentEntry(BaseModel):
 
 class OrderClose(BaseModel):
     payments: List[PaymentEntry] = Field(default_factory=list)
+
+
+class OrderCancel(BaseModel):
+    reason: Optional[str] = ""
 
 
 # ---------------------------------------------------------------------------
@@ -624,19 +638,31 @@ async def get_pos_config() -> dict:
     if not cfg:
         await db.pos_config.insert_one(dict(DEFAULT_POS_CONFIG))
         cfg = await db.pos_config.find_one({"id": "main"}, {"_id": 0})
+    for k, v in DEFAULT_POS_CONFIG.items():
+        cfg.setdefault(k, v)
     return cfg
 
 
 @api_router.get("/pos/config")
 async def read_pos_config(user: dict = Depends(get_current_user)):
-    return await get_pos_config()
+    cfg = await get_pos_config()
+    key = cfg.pop("invoice_api_key", "")
+    cfg["invoice_api_key_set"] = bool(key)
+    return cfg
 
 
 @api_router.put("/pos/config")
 async def update_pos_config(data: POSConfigInput, user: dict = Depends(require_admin)):
-    doc = {"id": "main", **data.model_dump()}
+    existing = await get_pos_config()
+    payload = data.model_dump()
+    if not payload.get("invoice_api_key"):
+        payload["invoice_api_key"] = existing.get("invoice_api_key", "")
+    doc = {"id": "main", **payload}
     await db.pos_config.update_one({"id": "main"}, {"$set": doc}, upsert=True)
-    return doc
+    out = dict(doc)
+    key = out.pop("invoice_api_key", "")
+    out["invoice_api_key_set"] = bool(key)
+    return out
 
 
 @api_router.get("/pos/zones")
@@ -1024,16 +1050,196 @@ async def close_order(order_id: str, data: OrderClose, user: dict = Depends(requ
     return saved
 
 
-@api_router.delete("/orders/{order_id}")
-async def cancel_order(order_id: str, user: dict = Depends(require_permission("faturacao"))):
+@api_router.post("/orders/{order_id}/cancel")
+async def cancel_order(order_id: str, data: OrderCancel, user: dict = Depends(require_permission("faturacao"))):
     order = await db.orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Mesa não encontrada")
     if order["status"] == "aberta":
         for it in order["items"]:
             await _apply_stock(it.get("stock_deductions", []), 1)
+    await db.orders.update_one({"id": order_id}, {"$set": {
+        "status": "cancelada", "cancel_reason": data.reason or "",
+        "cancelled_by": user["name"], "closed_at": now_iso(),
+    }})
+    return {"ok": True}
+
+
+@api_router.delete("/orders/{order_id}")
+async def delete_order(order_id: str, user: dict = Depends(require_admin)):
+    order = await db.orders.find_one({"id": order_id})
+    if order and order["status"] == "aberta":
+        for it in order["items"]:
+            await _apply_stock(it.get("stock_deductions", []), 1)
     await db.orders.delete_one({"id": order_id})
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Faturação (configurável) + Talão PDF + Relatórios
+# ---------------------------------------------------------------------------
+@api_router.post("/orders/{order_id}/invoice")
+async def emit_invoice(order_id: str, user: dict = Depends(require_permission("faturacao"))):
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Encomenda não encontrada")
+    if order.get("status") != "paga":
+        raise HTTPException(status_code=400, detail="Só é possível faturar contas pagas")
+    if order.get("invoice"):
+        return order["invoice"]
+    config = await get_pos_config()
+    if not config.get("invoice_enabled"):
+        raise HTTPException(status_code=400, detail="Faturação não configurada. Ative em Config POS → Faturação.")
+    provider = config.get("invoice_provider", "none")
+    # NOTA: emissão REAL do fornecedor (InvoiceXpress/Moloni) fica centralizada aqui.
+    # Enquanto não houver credenciais reais ligadas, gera número sequencial SIMULADO.
+    year = datetime.now(timezone.utc).year
+    count = await db.orders.count_documents({"invoice": {"$ne": None}}) + 1
+    invoice = {
+        "number": f"FT {year}/{count}",
+        "provider": provider,
+        "issued_at": now_iso(),
+        "issued_by": user["name"],
+        "simulated": True,
+    }
+    await db.orders.update_one({"id": order_id}, {"$set": {"invoice": invoice}})
+    return invoice
+
+
+def _fmt_money(v: float, config: dict) -> str:
+    d = int(config.get("decimals", 2))
+    sym = config.get("currency_symbol", "€")
+    s = f"{(v or 0):,.{d}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{s} {sym}"
+
+
+def build_receipt_pdf(order: dict, config: dict) -> bytes:
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas
+
+    r = config.get("receipt", {}) or {}
+    items = order.get("items", [])
+    vat = order.get("vat_breakdown", [])
+    payments = order.get("payments", [])
+    rows = 8
+    if r.get("address"): rows += 1
+    if r.get("nif"): rows += 1
+    if r.get("phone"): rows += 1
+    rows += len(items) + sum(1 for it in items if it.get("modifiers"))
+    rows += 4
+    if order.get("discount_amount"): rows += 1
+    if order.get("service_charge_amount"): rows += 1
+    rows += len(vat) + len(payments)
+    if order.get("change"): rows += 1
+    if order.get("invoice"): rows += 1
+    rows += 3
+
+    W = 80 * mm
+    H = (rows * 5 + 18) * mm
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(W, H))
+    y = [H - 8 * mm]
+
+    def line(left, right="", size=8, bold=False, center=False):
+        c.setFont("Helvetica-Bold" if bold else "Helvetica", size)
+        if center:
+            c.drawCentredString(W / 2, y[0], left)
+        else:
+            c.drawString(5 * mm, y[0], left[:34])
+            if right:
+                c.drawRightString(W - 5 * mm, y[0], right)
+        y[0] -= 5 * mm
+
+    def sep():
+        c.setDash(1, 2)
+        c.line(5 * mm, y[0] + 1.5 * mm, W - 5 * mm, y[0] + 1.5 * mm)
+        c.setDash()
+        y[0] -= 3 * mm
+
+    line(r.get("name") or "Restaurante", size=11, bold=True, center=True)
+    if r.get("address"): line(r["address"], size=7, center=True)
+    if r.get("nif"): line(f"NIF: {r['nif']}", size=7, center=True)
+    if r.get("phone"): line(r["phone"], size=7, center=True)
+    if order.get("invoice"): line(f"Fatura {order['invoice']['number']}", size=8, bold=True, center=True)
+    sep()
+    line(f"Mesa: {order.get('table_name', '-')}" + (f" · {order['zone_name']}" if order.get("zone_name") else ""), size=7)
+    dt = order.get("closed_at") or now_iso()
+    line(dt[:19].replace("T", " "), size=7)
+    sep()
+    for it in items:
+        line(f"{it['quantity']:g}x {it['product_name']}", _fmt_money(it["line_total"], config))
+        for md in it.get("modifiers", []):
+            line(f"  + {md['name']}", size=7)
+    sep()
+    line("Subtotal", _fmt_money(order.get("subtotal", 0), config))
+    if order.get("discount_amount"):
+        line("Desconto", "-" + _fmt_money(order["discount_amount"], config))
+    if order.get("service_charge_amount"):
+        line("Serviço", _fmt_money(order["service_charge_amount"], config))
+    line("TOTAL", _fmt_money(order.get("total", 0), config), size=11, bold=True)
+    sep()
+    for v in vat:
+        line(f"IVA {v['rate']:g}% (base {_fmt_money(v['base'], config)})", _fmt_money(v["vat"], config), size=7)
+    if payments:
+        sep()
+        for p in payments:
+            line(p["method"], _fmt_money(p["amount"], config), size=7)
+        if order.get("change"):
+            line("Troco", _fmt_money(order["change"], config), size=7)
+    y[0] -= 2 * mm
+    line(r.get("footer") or "", size=8, center=True)
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+@api_router.get("/orders/{order_id}/receipt.pdf")
+async def receipt_pdf(order_id: str, user: dict = Depends(require_permission("faturacao"))):
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Encomenda não encontrada")
+    config = await get_pos_config()
+    pdf = build_receipt_pdf(order, config)
+    return StreamingResponse(
+        io.BytesIO(pdf),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename=talao-{order_id[:8]}.pdf"},
+    )
+
+
+@api_router.get("/reports/pos")
+async def reports_pos(
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = None,
+    user: dict = Depends(require_permission("relatorios")),
+):
+    today = datetime.now(timezone.utc).date()
+    d_from = from_ or (today - timedelta(days=29)).isoformat()
+    d_to = to or today.isoformat()
+    orders = await db.orders.find({"status": "paga"}, {"_id": 0}).to_list(5000)
+    sel = [o for o in orders if d_from <= (o.get("closed_at") or "")[:10] <= d_to]
+    total = round(sum(o["total"] for o in sel), 2)
+    count = len(sel)
+    avg = round(total / count, 2) if count else 0.0
+    by_zone, by_method, by_day, by_vat = {}, {}, {}, {}
+    for o in sel:
+        z = o.get("zone_name") or "Sem zona"
+        by_zone[z] = round(by_zone.get(z, 0) + o["total"], 2)
+        d = o["closed_at"][:10]
+        by_day[d] = round(by_day.get(d, 0) + o["total"], 2)
+        for p in o.get("payments", []):
+            by_method[p["method"]] = round(by_method.get(p["method"], 0) + p["amount"], 2)
+        for v in o.get("vat_breakdown", []):
+            by_vat[v["rate"]] = round(by_vat.get(v["rate"], 0) + v["vat"], 2)
+    cancelled = await db.orders.count_documents({"status": "cancelada", "closed_at": {"$gte": d_from, "$lte": d_to + "T99"}})
+    return {
+        "from": d_from, "to": d_to,
+        "total_sales": total, "order_count": count, "avg_ticket": avg, "cancelled_count": cancelled,
+        "by_zone": [{"zone": k, "total": v} for k, v in sorted(by_zone.items(), key=lambda x: -x[1])],
+        "by_method": [{"method": k, "total": v} for k, v in sorted(by_method.items(), key=lambda x: -x[1])],
+        "by_day": [{"day": k, "total": v} for k, v in sorted(by_day.items())],
+        "by_vat": [{"rate": k, "vat": v} for k, v in sorted(by_vat.items())],
+    }
 
 
 # ---------------------------------------------------------------------------

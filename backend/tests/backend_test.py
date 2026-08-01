@@ -994,3 +994,342 @@ class TestPOSConfig:
         for p in (TestPOSConfig._prod_a, TestPOSConfig._prod_b):
             if p:
                 admin_session.delete(f"{API}/products/{p['id']}")
+
+
+# ---------------------------------------------------------------------------
+# NEW FEATURES (iteration 7): product edit, soft-cancel with reason,
+# invoicing config with masked api_key, invoice emit, PDF receipt, reports/pos.
+# ---------------------------------------------------------------------------
+class TestPOSNewFeatures:
+    _prod_id = None
+    _order_id = None
+    _cat_id = None
+    _mod_group_id = None
+    _zone_id = None
+    _table_id = None
+    _saved_cfg = None
+
+    def test_setup_environment(self, admin_session):
+        # zone + table
+        z = admin_session.post(f"{API}/pos/zones", json={"name": f"TEST_ZR_{uuid.uuid4().hex[:5]}"}).json()
+        TestPOSNewFeatures._zone_id = z["id"]
+        t = admin_session.post(f"{API}/pos/tables", json={"name": "M-R1", "zone_id": z["id"], "seats": 2}).json()
+        TestPOSNewFeatures._table_id = t["id"]
+        # category
+        c = admin_session.post(f"{API}/pos/categories", json={"name": f"TEST_CatR_{uuid.uuid4().hex[:4]}", "color": "#123456"}).json()
+        TestPOSNewFeatures._cat_id = c["id"]
+        # mod group
+        m = admin_session.post(f"{API}/pos/modifier-groups", json={
+            "name": f"TEST_ModR_{uuid.uuid4().hex[:4]}", "min": 0, "max": 1,
+            "options": [{"name": "Extra R", "price_delta": 0.5}]
+        }).json()
+        TestPOSNewFeatures._mod_group_id = m["id"]
+        # product
+        p = admin_session.post(f"{API}/products", json={
+            "name": f"TEST_ProdR_{uuid.uuid4().hex[:4]}",
+            "quantity": 50, "sale_price": 5.0, "cost_price": 1.0,
+            "vat_rate": 23.0, "track_stock": True, "min_quantity": 0,
+        }).json()
+        TestPOSNewFeatures._prod_id = p["id"]
+
+    # ---------- Feature 1: EDIT product ---------------------------------
+    def test_edit_product_category_vat_track_modifiers(self, admin_session):
+        pid = TestPOSNewFeatures._prod_id
+        r = admin_session.put(f"{API}/products/{pid}", json={
+            "category_id": TestPOSNewFeatures._cat_id,
+            "vat_rate": 13.0,
+            "track_stock": False,
+            "sale_price": 7.5,
+            "modifier_group_ids": [TestPOSNewFeatures._mod_group_id],
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["category_id"] == TestPOSNewFeatures._cat_id
+        assert d["vat_rate"] == 13.0
+        assert d["track_stock"] is False
+        assert d["sale_price"] == 7.5
+        assert TestPOSNewFeatures._mod_group_id in d.get("modifier_group_ids", [])
+        # Verify persisted via GET
+        g = admin_session.get(f"{API}/products").json()
+        pp = next(x for x in g if x["id"] == pid)
+        assert pp["vat_rate"] == 13.0
+        assert pp["sale_price"] == 7.5
+        assert pp["track_stock"] is False
+        # restore track_stock True for stock-return test later
+        admin_session.put(f"{API}/products/{pid}", json={"track_stock": True, "vat_rate": 23.0})
+
+    # ---------- Feature: Invoice config (mask key, persistence) --------
+    def test_pos_config_invoice_fields_default(self, admin_session):
+        r = admin_session.get(f"{API}/pos/config")
+        assert r.status_code == 200
+        c = r.json()
+        TestPOSNewFeatures._saved_cfg = c
+        assert "invoice_enabled" in c
+        assert "invoice_provider" in c
+        assert "invoice_account" in c
+        assert "invoice_api_key_set" in c
+        # key must NEVER be in response
+        assert "invoice_api_key" not in c
+
+    def test_pos_config_put_invoice_and_mask_key(self, admin_session):
+        c = TestPOSNewFeatures._saved_cfg
+        payload = {
+            "currency_symbol": c.get("currency_symbol", "€"),
+            "decimals": int(c.get("decimals", 2)),
+            "rounding": c.get("rounding", "none"),
+            "track_stock_default": c.get("track_stock_default", True),
+            "service_charge_enabled": c.get("service_charge_enabled", False),
+            "service_charge_percent": c.get("service_charge_percent", 0.0),
+            "default_vat_rate": c.get("default_vat_rate", 23.0),
+            "payment_methods": c.get("payment_methods", []),
+            "receipt": c.get("receipt", {}),
+            "invoice_enabled": True,
+            "invoice_provider": "invoicexpress",
+            "invoice_account": "TEST_ACC_123",
+            "invoice_api_key": "SECRET_KEY_XYZ",
+        }
+        r = admin_session.put(f"{API}/pos/config", json=payload)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["invoice_enabled"] is True
+        assert d["invoice_provider"] == "invoicexpress"
+        assert d["invoice_account"] == "TEST_ACC_123"
+        assert d.get("invoice_api_key_set") is True
+        assert "invoice_api_key" not in d, "PUT response must NOT include plaintext key"
+
+        # Reload GET — persistence + still masked
+        r2 = admin_session.get(f"{API}/pos/config").json()
+        assert r2["invoice_enabled"] is True
+        assert r2["invoice_provider"] == "invoicexpress"
+        assert r2["invoice_account"] == "TEST_ACC_123"
+        assert r2["invoice_api_key_set"] is True
+        assert "invoice_api_key" not in r2
+
+    def test_pos_config_put_empty_key_keeps_existing(self, admin_session):
+        # PUT with empty invoice_api_key -> should preserve previously stored key
+        c = TestPOSNewFeatures._saved_cfg
+        payload = {
+            "currency_symbol": c.get("currency_symbol", "€"),
+            "decimals": int(c.get("decimals", 2)),
+            "rounding": c.get("rounding", "none"),
+            "track_stock_default": c.get("track_stock_default", True),
+            "service_charge_enabled": c.get("service_charge_enabled", False),
+            "service_charge_percent": c.get("service_charge_percent", 0.0),
+            "default_vat_rate": c.get("default_vat_rate", 23.0),
+            "payment_methods": c.get("payment_methods", []),
+            "receipt": c.get("receipt", {}),
+            "invoice_enabled": True,
+            "invoice_provider": "invoicexpress",
+            "invoice_account": "TEST_ACC_UPDATED",
+            "invoice_api_key": "",   # empty -> keep existing
+        }
+        r = admin_session.put(f"{API}/pos/config", json=payload)
+        assert r.status_code == 200
+        d = r.json()
+        assert d["invoice_account"] == "TEST_ACC_UPDATED"
+        assert d.get("invoice_api_key_set") is True, "empty key must NOT clear existing"
+
+    # ---------- Feature 2: SOFT CANCEL with reason ----------------------
+    def test_cancel_order_with_reason_soft_cancel_returns_stock(self, admin_session):
+        # get current stock
+        prods = admin_session.get(f"{API}/products").json()
+        p0 = next(x for x in prods if x["id"] == TestPOSNewFeatures._prod_id)
+        qty0 = p0["quantity"]
+
+        o = admin_session.post(f"{API}/orders", json={"table_id": TestPOSNewFeatures._table_id}).json()
+        oid = o["id"]
+        # add item
+        r = admin_session.post(f"{API}/orders/{oid}/items", json={
+            "kind": "product", "ref_id": TestPOSNewFeatures._prod_id, "quantity": 3,
+        })
+        assert r.status_code == 200, r.text
+
+        # POST /cancel with reason
+        rc = admin_session.post(f"{API}/orders/{oid}/cancel", json={"reason": "Cliente desistiu"})
+        assert rc.status_code == 200, rc.text
+
+        # order still exists with status=cancelada
+        listed = admin_session.get(f"{API}/orders?status=cancelada").json()
+        matched = [x for x in listed if x["id"] == oid]
+        assert len(matched) == 1, "cancelled order should still exist under status=cancelada"
+        c = matched[0]
+        assert c["status"] == "cancelada"
+        assert c.get("cancel_reason") == "Cliente desistiu"
+        assert c.get("cancelled_by")
+        assert c.get("closed_at")
+
+        # not in open list
+        open_list = admin_session.get(f"{API}/orders?status=aberta").json()
+        assert not any(x["id"] == oid for x in open_list), "cancelled order should not appear in open list"
+
+        # stock restored
+        prods2 = admin_session.get(f"{API}/products").json()
+        p1 = next(x for x in prods2 if x["id"] == TestPOSNewFeatures._prod_id)
+        assert p1["quantity"] == qty0
+
+    def test_delete_order_admin_only_hard_delete(self, admin_session):
+        # admin DELETE should still work now as hard-delete
+        o = admin_session.post(f"{API}/orders", json={"table_name": "TEST HardDel"}).json()
+        r = admin_session.delete(f"{API}/orders/{o['id']}")
+        assert r.status_code == 200
+        # gone
+        listed = admin_session.get(f"{API}/orders").json()
+        assert not any(x["id"] == o["id"] for x in listed)
+
+    # ---------- Feature 3: PDF receipt ----------------------------------
+    def test_receipt_pdf_returns_valid_pdf(self, admin_session):
+        # open, add item, close, then fetch PDF
+        o = admin_session.post(f"{API}/orders", json={"table_name": "TEST PDF"}).json()
+        oid = o["id"]
+        admin_session.post(f"{API}/orders/{oid}/items", json={
+            "kind": "product", "ref_id": TestPOSNewFeatures._prod_id, "quantity": 1,
+        })
+        rc = admin_session.post(f"{API}/orders/{oid}/close", json={
+            "payments": [{"method": "Dinheiro", "amount": 50.0}]
+        })
+        assert rc.status_code == 200, rc.text
+        TestPOSNewFeatures._order_id = oid
+        r = admin_session.get(f"{API}/orders/{oid}/receipt.pdf")
+        assert r.status_code == 200
+        assert r.headers.get("content-type", "").startswith("application/pdf")
+        assert r.content.startswith(b"%PDF"), "not a valid PDF magic header"
+        assert len(r.content) > 500
+
+    # ---------- Feature: emit invoice -----------------------------------
+    def test_emit_invoice_paid_order(self, admin_session):
+        oid = TestPOSNewFeatures._order_id
+        r = admin_session.post(f"{API}/orders/{oid}/invoice")
+        assert r.status_code == 200, r.text
+        inv = r.json()
+        assert inv["number"].startswith("FT ")
+        assert inv["provider"] == "invoicexpress"
+        assert inv.get("simulated") is True
+        # idempotent — second call returns same
+        r2 = admin_session.post(f"{API}/orders/{oid}/invoice")
+        assert r2.status_code == 200
+        assert r2.json()["number"] == inv["number"]
+
+    def test_emit_invoice_open_order_400(self, admin_session):
+        o = admin_session.post(f"{API}/orders", json={"table_name": "TEST OpenInv"}).json()
+        r = admin_session.post(f"{API}/orders/{o['id']}/invoice")
+        assert r.status_code == 400
+        admin_session.delete(f"{API}/orders/{o['id']}")
+
+    def test_emit_invoice_disabled_400(self, admin_session):
+        # temporarily disable invoicing
+        c = TestPOSNewFeatures._saved_cfg
+        admin_session.put(f"{API}/pos/config", json={
+            "currency_symbol": c.get("currency_symbol", "€"),
+            "decimals": int(c.get("decimals", 2)),
+            "rounding": c.get("rounding", "none"),
+            "track_stock_default": c.get("track_stock_default", True),
+            "service_charge_enabled": c.get("service_charge_enabled", False),
+            "service_charge_percent": c.get("service_charge_percent", 0.0),
+            "default_vat_rate": c.get("default_vat_rate", 23.0),
+            "payment_methods": c.get("payment_methods", []),
+            "receipt": c.get("receipt", {}),
+            "invoice_enabled": False,
+            "invoice_provider": "invoicexpress",
+            "invoice_account": "TEST_ACC_123",
+            "invoice_api_key": "",  # keep existing
+        })
+        # create a fresh paid order without invoice
+        o = admin_session.post(f"{API}/orders", json={"table_name": "TEST NoInv"}).json()
+        oid = o["id"]
+        admin_session.post(f"{API}/orders/{oid}/items", json={
+            "kind": "product", "ref_id": TestPOSNewFeatures._prod_id, "quantity": 1,
+        })
+        admin_session.post(f"{API}/orders/{oid}/close", json={"payments": [{"method": "Dinheiro", "amount": 50.0}]})
+        r = admin_session.post(f"{API}/orders/{oid}/invoice")
+        assert r.status_code == 400
+        # re-enable
+        admin_session.put(f"{API}/pos/config", json={
+            "currency_symbol": c.get("currency_symbol", "€"),
+            "decimals": int(c.get("decimals", 2)),
+            "rounding": c.get("rounding", "none"),
+            "track_stock_default": c.get("track_stock_default", True),
+            "service_charge_enabled": c.get("service_charge_enabled", False),
+            "service_charge_percent": c.get("service_charge_percent", 0.0),
+            "default_vat_rate": c.get("default_vat_rate", 23.0),
+            "payment_methods": c.get("payment_methods", []),
+            "receipt": c.get("receipt", {}),
+            "invoice_enabled": True,
+            "invoice_provider": "invoicexpress",
+            "invoice_account": "TEST_ACC_123",
+            "invoice_api_key": "",
+        })
+        admin_session.delete(f"{API}/orders/{oid}")
+
+    # ---------- Feature 4: /api/reports/pos -----------------------------
+    def test_reports_pos_returns_structure_and_has_our_sale(self, admin_session):
+        r = admin_session.get(f"{API}/reports/pos")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        for k in ["from", "to", "total_sales", "order_count", "avg_ticket",
+                  "cancelled_count", "by_zone", "by_method", "by_day", "by_vat"]:
+            assert k in d, f"missing report key {k}"
+        assert isinstance(d["by_zone"], list)
+        assert isinstance(d["by_method"], list)
+        assert isinstance(d["by_day"], list)
+        assert isinstance(d["by_vat"], list)
+        # our closed sale exists -> totals > 0 for today
+        assert d["order_count"] >= 1
+        assert d["total_sales"] > 0
+        # Dinheiro should appear in methods since we paid cash
+        methods = [x["method"] for x in d["by_method"]]
+        assert "Dinheiro" in methods
+        # cancelled_count >= 1 (from soft-cancel test)
+        assert d["cancelled_count"] >= 1
+
+    def test_reports_pos_date_range_filter(self, admin_session):
+        # Range in far past -> should have no data
+        r = admin_session.get(f"{API}/reports/pos", params={"from": "2000-01-01", "to": "2000-01-02"})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["order_count"] == 0
+        assert d["total_sales"] == 0
+        assert d["from"] == "2000-01-01"
+        assert d["to"] == "2000-01-02"
+
+    def test_reports_pos_forbidden_for_funcionario_without_perm(self, admin_session):
+        email = f"test_norep_{uuid.uuid4().hex[:5]}@rest.pt"
+        admin_session.post(f"{API}/staff", json={
+            "name": "TEST NoRep", "email": email, "password": "pw",
+            "role": "funcionario", "permissions": ["picagem"],
+        })
+        s, _ = _login_session(email, "pw")
+        r = s.get(f"{API}/reports/pos")
+        assert r.status_code == 403
+        # cleanup
+        u = admin_session.get(f"{API}/staff").json()
+        me = next(x for x in u if x["email"] == email)
+        admin_session.delete(f"{API}/staff/{me['id']}")
+
+    # ---------- Cleanup --------------------------------------------------
+    def test_zz_cleanup_new_features(self, admin_session):
+        # restore invoicing off
+        if TestPOSNewFeatures._saved_cfg:
+            c = TestPOSNewFeatures._saved_cfg
+            admin_session.put(f"{API}/pos/config", json={
+                "currency_symbol": c.get("currency_symbol", "€"),
+                "decimals": int(c.get("decimals", 2)),
+                "rounding": c.get("rounding", "none"),
+                "track_stock_default": c.get("track_stock_default", True),
+                "service_charge_enabled": c.get("service_charge_enabled", False),
+                "service_charge_percent": c.get("service_charge_percent", 0.0),
+                "default_vat_rate": c.get("default_vat_rate", 23.0),
+                "payment_methods": c.get("payment_methods", []),
+                "receipt": c.get("receipt", {}),
+                "invoice_enabled": False,
+                "invoice_provider": "none",
+                "invoice_account": "",
+                "invoice_api_key": "",
+            })
+        if TestPOSNewFeatures._mod_group_id:
+            admin_session.delete(f"{API}/pos/modifier-groups/{TestPOSNewFeatures._mod_group_id}")
+        if TestPOSNewFeatures._cat_id:
+            admin_session.delete(f"{API}/pos/categories/{TestPOSNewFeatures._cat_id}")
+        if TestPOSNewFeatures._zone_id:
+            admin_session.delete(f"{API}/pos/zones/{TestPOSNewFeatures._zone_id}")
+        if TestPOSNewFeatures._prod_id:
+            admin_session.delete(f"{API}/products/{TestPOSNewFeatures._prod_id}")

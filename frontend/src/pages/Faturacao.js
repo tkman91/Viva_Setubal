@@ -3,7 +3,7 @@ import api, { fmtMoney, num, formatApiError } from "@/lib/api";
 import { PageHeader } from "@/components/Layout";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Trash2, Table2, Utensils, Printer, Percent, ConciergeBell } from "lucide-react";
+import { Plus, Trash2, Table2, Utensils, Printer, Percent, ConciergeBell, FileText, Download } from "lucide-react";
 import ModifierPicker from "@/components/pos/ModifierPicker";
 import PaymentDialog from "@/components/pos/PaymentDialog";
 import { printReceipt } from "@/components/pos/receipt";
@@ -27,6 +27,8 @@ export default function Registadora() {
   const [receipt, setReceipt] = useState(null);
   const [walkName, setWalkName] = useState("");
   const [activeCat, setActiveCat] = useState("all");
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   const m = useCallback((v) => fmtMoney(v, config), [config]);
 
@@ -107,12 +109,23 @@ export default function Registadora() {
 
   const cancelOrder = async () => {
     try {
-      await api.delete(`/orders/${selected.id}`);
+      await api.post(`/orders/${selected.id}/cancel`, { reason: cancelReason });
       toast.success("Mesa cancelada · stock devolvido");
+      setCancelOpen(false); setCancelReason("");
       setSelected(null);
       loadOrders();
     } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
   };
+
+  const emitInvoice = async () => {
+    try {
+      const { data } = await api.post(`/orders/${receipt.id}/invoice`);
+      setReceipt((r) => ({ ...r, invoice: data }));
+      toast.success(`Fatura emitida: ${data.number}`);
+    } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
+  };
+
+  const openPdf = () => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/orders/${receipt.id}/receipt.pdf`, "_blank");
 
   const confirmPayment = async (payments) => {
     try {
@@ -274,7 +287,7 @@ export default function Registadora() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <button data-testid="btn-cancel-order" onClick={cancelOrder} className="py-2.5 border border-destructive text-destructive font-semibold text-sm hover:bg-destructive/10 transition-colors duration-150">Cancelar mesa</button>
+                  <button data-testid="btn-cancel-order" onClick={() => setCancelOpen(true)} className="py-2.5 border border-destructive text-destructive font-semibold text-sm hover:bg-destructive/10 transition-colors duration-150">Cancelar mesa</button>
                   <button data-testid="btn-pay" disabled={!selected?.items?.length} onClick={() => setPayOpen(true)} className={btnPrimary + " disabled:opacity-40"}>Pagar</button>
                 </div>
               </div>
@@ -293,6 +306,21 @@ export default function Registadora() {
         <PaymentDialog order={selected} config={config} onConfirm={confirmPayment} onClose={() => setPayOpen(false)} />
       )}
 
+      {/* Cancelar mesa */}
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent className="rounded-none max-w-sm" data-testid="cancel-dialog">
+          <DialogHeader><DialogTitle className="font-display tracking-tight">Cancelar mesa</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">O stock é devolvido e a conta fica registada como cancelada (para auditoria).</p>
+            <input data-testid="cancel-reason" placeholder="Motivo (opcional)" className={field} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setCancelOpen(false)} className="py-2.5 border border-border font-semibold text-sm hover:bg-secondary transition-colors duration-150">Voltar</button>
+              <button data-testid="btn-confirm-cancel" onClick={cancelOrder} className="py-2.5 bg-destructive text-destructive-foreground font-semibold text-sm hover:opacity-90 transition-opacity duration-150">Confirmar</button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Recibo */}
       <Dialog open={!!receipt} onOpenChange={(o) => !o && setReceipt(null)}>
         <DialogContent className="rounded-none max-w-sm" data-testid="receipt-dialog">
@@ -303,8 +331,15 @@ export default function Registadora() {
                 <div className="label-tech">Total</div>
                 <div className="font-display text-5xl font-black tracking-tighter mono">{m(receipt.total)}</div>
                 {receipt.change > 0 && <div className="text-sm text-muted-foreground">Troco: <span className="mono">{m(receipt.change)}</span></div>}
+                {receipt.invoice && <div className="text-sm mt-1">Fatura: <span className="mono font-semibold">{receipt.invoice.number}</span></div>}
               </div>
-              <button data-testid="btn-print-receipt" onClick={() => printReceipt(receipt, config)} className={btnPrimary + " w-full flex items-center justify-center gap-2"}><Printer className="w-4 h-4" /> Imprimir talão</button>
+              <div className="grid grid-cols-2 gap-2">
+                <button data-testid="btn-print-receipt" onClick={() => printReceipt(receipt, config)} className="py-2.5 border border-border font-semibold text-sm hover:bg-secondary transition-colors duration-150 flex items-center justify-center gap-2"><Printer className="w-4 h-4" /> Imprimir</button>
+                <button data-testid="btn-pdf-receipt" onClick={openPdf} className="py-2.5 border border-border font-semibold text-sm hover:bg-secondary transition-colors duration-150 flex items-center justify-center gap-2"><Download className="w-4 h-4" /> PDF</button>
+              </div>
+              {config.invoice_enabled && !receipt.invoice && (
+                <button data-testid="btn-emit-invoice" onClick={emitInvoice} className={btnPrimary + " w-full flex items-center justify-center gap-2"}><FileText className="w-4 h-4" /> Emitir fatura</button>
+              )}
             </div>
           )}
         </DialogContent>

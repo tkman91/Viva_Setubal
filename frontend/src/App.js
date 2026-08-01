@@ -12,6 +12,7 @@ import Staff from "@/pages/Staff";
 import Consumo from "@/pages/Consumo";
 import Faturacao from "@/pages/Faturacao";
 import POSConfig from "@/pages/POSConfig";
+import Relatorios from "@/pages/Relatorios";
 import Settings from "@/pages/Settings";
 
 function Protected({ children, module }) {
@@ -42,6 +43,7 @@ function AppRoutes() {
       <Route path="/consumo" element={<Protected module="consumo"><Consumo /></Protected>} />
       <Route path="/staff" element={<Protected module="staff"><Staff /></Protected>} />
       <Route path="/faturacao" element={<Protected module="faturacao"><Faturacao /></Protected>} />
+      <Route path="/relatorios" element={<Protected module="relatorios"><Relatorios /></Protected>} />
       <Route path="/config-pos" element={<Protected module="settings"><POSConfig /></Protected>} />
       <Route path="/definicoes" element={<Protected module="settings"><Settings /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />

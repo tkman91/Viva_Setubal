@@ -24,6 +24,8 @@ export default function GeneralConfig({ config, setConfig }) {
         track_stock_default: c.track_stock_default, service_charge_enabled: c.service_charge_enabled,
         service_charge_percent: Number(c.service_charge_percent), default_vat_rate: Number(c.default_vat_rate),
         payment_methods: c.payment_methods, receipt: c.receipt,
+        invoice_provider: c.invoice_provider || "none", invoice_enabled: !!c.invoice_enabled,
+        invoice_account: c.invoice_account || "", invoice_api_key: c.invoice_api_key || "",
       });
       toast.success("Configuração guardada");
     } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
@@ -83,6 +85,25 @@ export default function GeneralConfig({ config, setConfig }) {
           </div>
         </div>
         <label className="flex items-center gap-2 text-sm"><input data-testid="chk-track-stock" type="checkbox" checked={c.track_stock_default} onChange={(e) => upd({ track_stock_default: e.target.checked })} /> Controlar stock por defeito nos novos produtos</label>
+      </section>
+
+      {/* Faturação (configurável) */}
+      <section className="border border-border p-4 space-y-3">
+        <div className="font-display font-bold tracking-tight">Faturação certificada</div>
+        <label className="flex items-center gap-2 text-sm"><input data-testid="chk-invoice-enabled" type="checkbox" checked={!!c.invoice_enabled} onChange={(e) => upd({ invoice_enabled: e.target.checked })} /> Ativar emissão de faturas</label>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <div><label className="label-tech block">Fornecedor</label>
+            <select data-testid="select-invoice-provider" className={field} value={c.invoice_provider || "none"} onChange={(e) => upd({ invoice_provider: e.target.value })}>
+              <option value="none">Nenhum</option>
+              <option value="invoicexpress">InvoiceXpress</option>
+              <option value="moloni">Moloni</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+          <div><label className="label-tech block">Conta</label><input data-testid="input-invoice-account" className={field} value={c.invoice_account || ""} onChange={(e) => upd({ invoice_account: e.target.value })} /></div>
+          <div><label className="label-tech block">API Key {c.invoice_api_key_set ? "(guardada)" : ""}</label><input data-testid="input-invoice-key" type="password" placeholder={c.invoice_api_key_set ? "••••• (deixa vazio p/ manter)" : "chave do fornecedor"} className={field} value={c.invoice_api_key || ""} onChange={(e) => upd({ invoice_api_key: e.target.value })} /></div>
+        </div>
+        <p className="text-xs text-muted-foreground">A ligação real ao fornecedor é feita quando fornecer a API key. Sem key ativa, a emissão gera um número sequencial SIMULADO.</p>
       </section>
 
       <button data-testid="btn-save-config" onClick={save} disabled={saving} className={btn + " flex items-center gap-2"}><Save className="w-4 h-4" /> {saving ? "A guardar..." : "Guardar configuração"}</button>

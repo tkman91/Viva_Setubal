@@ -9,7 +9,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { Plus, ArrowUp, ArrowDown, Trash2, Pencil } from "lucide-react";
 
 const field = "w-full px-3 py-2 bg-background border border-input focus:outline-none focus:ring-2 focus:ring-primary text-sm";
 const btnPrimary = "px-4 py-2 bg-primary text-primary-foreground font-semibold text-sm hover:translate-y-[-1px] active:scale-[0.98] transition-transform duration-150";
@@ -19,6 +19,7 @@ export default function Stock() {
   const [categories, setCategories] = useState([]);
   const [modGroups, setModGroups] = useState([]);
   const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState(null);
   const [moveProduct, setMoveProduct] = useState(null);
   const [form, setForm] = useState({ name: "", category: "Geral", category_id: "", unit: "un", quantity: 0, min_quantity: 0, cost_price: 0, sale_price: 0, vat_rate: 23, track_stock: true, modifier_group_ids: [] });
   const [move, setMove] = useState({ type: "entrada", quantity: 1, note: "" });
@@ -30,11 +31,13 @@ export default function Stock() {
     api.get("/pos/modifier-groups").then((r) => setModGroups(r.data)).catch(() => {});
   }, [load]);
 
+  const emptyForm = { name: "", category: "Geral", category_id: "", unit: "un", quantity: 0, min_quantity: 0, cost_price: 0, sale_price: 0, vat_rate: 23, track_stock: true, modifier_group_ids: [] };
+
   const addProduct = async (e) => {
     e.preventDefault();
     try {
       const cat = categories.find((c) => c.id === form.category_id);
-      await api.post("/products", {
+      const payload = {
         ...form,
         category: cat ? cat.name : (form.category || "Geral"),
         quantity: Number(form.quantity),
@@ -42,14 +45,31 @@ export default function Stock() {
         cost_price: Number(form.cost_price),
         sale_price: Number(form.sale_price),
         vat_rate: Number(form.vat_rate),
-      });
-      toast.success("Produto adicionado");
-      setOpen(false);
-      setForm({ name: "", category: "Geral", category_id: "", unit: "un", quantity: 0, min_quantity: 0, cost_price: 0, sale_price: 0, vat_rate: 23, track_stock: true, modifier_group_ids: [] });
+      };
+      if (editId) {
+        await api.put(`/products/${editId}`, payload);
+        toast.success("Produto atualizado");
+      } else {
+        await api.post("/products", payload);
+        toast.success("Produto adicionado");
+      }
+      setOpen(false); setEditId(null);
+      setForm(emptyForm);
       load();
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail));
     }
+  };
+
+  const openEdit = (p) => {
+    setEditId(p.id);
+    setForm({
+      name: p.name || "", category: p.category || "Geral", category_id: p.category_id || "",
+      unit: p.unit || "un", quantity: p.quantity ?? 0, min_quantity: p.min_quantity ?? 0,
+      cost_price: p.cost_price ?? 0, sale_price: p.sale_price ?? 0, vat_rate: p.vat_rate ?? 23,
+      track_stock: p.track_stock !== false, modifier_group_ids: p.modifier_group_ids || [],
+    });
+    setOpen(true);
   };
 
   const toggleMod = (id) => setForm((f) => ({ ...f, modifier_group_ids: f.modifier_group_ids.includes(id) ? f.modifier_group_ids.filter((x) => x !== id) : [...f.modifier_group_ids, id] }));
@@ -76,14 +96,14 @@ export default function Stock() {
   return (
     <div>
       <PageHeader title="Controlo de Stock" subtitle="Inventário e movimentos">
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setEditId(null); setForm(emptyForm); } }}>
           <DialogTrigger asChild>
-            <button data-testid="btn-add-product" className={btnPrimary}>
+            <button data-testid="btn-add-product" onClick={() => { setEditId(null); setForm(emptyForm); }} className={btnPrimary}>
               <Plus className="w-4 h-4 inline mr-1" /> Produto
             </button>
           </DialogTrigger>
           <DialogContent className="rounded-none">
-            <DialogHeader><DialogTitle className="font-display tracking-tight">Novo Produto</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle className="font-display tracking-tight">{editId ? "Editar Produto" : "Novo Produto"}</DialogTitle></DialogHeader>
             <form onSubmit={addProduct} className="space-y-3">
               <input data-testid="input-product-name" required placeholder="Nome" className={field} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <div className="grid grid-cols-2 gap-3">
@@ -151,6 +171,7 @@ export default function Stock() {
                     <td className="px-4 py-3 text-right mono">{eur(p.sale_price)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
+                        <button data-testid={`btn-edit-product-${p.id}`} onClick={() => openEdit(p)} className="p-1.5 border border-border hover:bg-secondary transition-colors duration-150" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
                         <button data-testid={`btn-move-${p.id}`} onClick={() => setMoveProduct(p)} className="p-1.5 border border-border hover:bg-secondary transition-colors duration-150" title="Movimento"><ArrowUp className="w-3.5 h-3.5" /></button>
                         <button data-testid={`btn-delete-product-${p.id}`} onClick={() => remove(p.id)} className="p-1.5 border border-border text-destructive hover:bg-destructive/10 transition-colors duration-150"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
