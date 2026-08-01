@@ -31,6 +31,14 @@
 - Faturação: criar faturas com linhas/IVA (23/13/6/0%), totais, nº sequencial, "Emitir" (sync simulado — INTEGRAÇÃO EXTERNA POR LIGAR).
 - Definições: localização do restaurante + raio.
 
+## Versão Mobile (2026-08-01)
+- **Navegação mobile**: top bar (`lg:hidden`) com botão hambúrguer → gaveta lateral (Sheet) com todos os módulos permitidos; sidebar desktop mantém-se (`hidden lg:flex`). Toque num item navega e fecha a gaveta.
+- **PageHeader responsivo**: empilha no mobile (`flex-col sm:flex-row`), fica sticky abaixo da top bar (`top-14 lg:top-0`), data escondida em ecrãs pequenos.
+- **Registadora no telemóvel**: diálogo da conta em ecrã dividido (menu em cima / conta em baixo, cada um com scroll), largura `96vw`; pagamento e modificadores usáveis a 390px.
+- **Padding responsivo** em todas as páginas (`p-4 sm:p-8`); Login já colapsa para coluna única no mobile.
+- Testado em viewport 390×844 (iPhone): 100% dos fluxos PASS (gaveta, Picagem, POS, Relatórios, Stock).
+- Backlog a11y (dev-only): adicionar DialogDescription a alguns diálogos (avisos Radix não-fatais, só em modo dev).
+
 ## POS Configurável (2026-08-01)
 - **Config POS** (nova página admin, `/config-pos`): tabs Zonas&Mesas, Categorias, Modificadores, Menus/Combos, Pagamentos·Talão·Geral.
 - **Zonas & Mesas**: CRUD zonas (Sala/Esplanada/Balcão), mesas por zona (nome, lugares), criação em série (bulk).

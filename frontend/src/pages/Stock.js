@@ -117,8 +117,8 @@ export default function Stock() {
                 <div><label className="label-tech">Unidade</label><input placeholder="un, kg, L" className={field} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></div>
                 <div><label className="label-tech">Quantidade</label><input data-testid="input-product-qty" type="number" step="any" className={field} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></div>
                 <div><label className="label-tech">Stock mínimo</label><input type="number" step="any" className={field} value={form.min_quantity} onChange={(e) => setForm({ ...form, min_quantity: e.target.value })} /></div>
-                <div><label className="label-tech">Preço custo €</label><input type="number" step="any" className={field} value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} /></div>
-                <div><label className="label-tech">Preço venda €</label><input type="number" step="any" className={field} value={form.sale_price} onChange={(e) => setForm({ ...form, sale_price: e.target.value })} /></div>
+                <div><label className="label-tech">Preço custo €</label><input data-testid="input-product-cost" type="number" step="any" className={field} value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} /></div>
+                <div><label className="label-tech">Preço venda €</label><input data-testid="input-product-price" type="number" step="any" className={field} value={form.sale_price} onChange={(e) => setForm({ ...form, sale_price: e.target.value })} /></div>
                 <div>
                   <label className="label-tech">IVA</label>
                   <select data-testid="select-product-vat" className={field} value={form.vat_rate} onChange={(e) => setForm({ ...form, vat_rate: e.target.value })}>
