@@ -47,15 +47,17 @@ yarn install
 cd ~/Viva_Setubal
 ```
 
-## 4. HTTPS com DuckDNS (DNS-01) — sem abrir portas
+## 4. HTTPS (DuckDNS/DNS-01) + BUILD de produção — sem abrir portas
 
 ```bash
 # <dominio-duckdns> <email> <token> [porta-https-externa]
 bash scripts/setup_https_duckdns.sh tkman91.duckdns.org teu@email.pt SEU_TOKEN 10443
 ```
-Isto: emite o certificado por DNS-01, configura o Nginx (proxy `/` → frontend, `/api` → backend), acerta os `.env` (`COOKIE_SECURE="true"`, `CORS_ORIGINS` com a porta) e instala a **renovação automática**.
+Isto: emite o certificado por DNS-01, **compila o frontend** (`yarn build`) e publica-o em `/var/www/restaurante`, configura o Nginx para **servir o build estático** (`/`) e fazer proxy do `/api` → backend, acerta os `.env` (`COOKIE_SECURE="true"`, `CORS_ORIGINS` com a porta) e instala a **renovação automática**.
 
-## 5. Arranque automático (systemd) — sobrevive a reinícios
+> O frontend passa a ser servido **estático pelo Nginx** — já **não** corres `yarn start`. Só o backend precisa de estar a correr.
+
+## 5. Arranque automático (systemd) — só o backend
 
 **Backend** — `/etc/systemd/system/viva-backend.service`:
 ```ini
@@ -73,29 +75,14 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-**Frontend** (dev atrás do proxy) — `/etc/systemd/system/viva-frontend.service`:
-```ini
-[Unit]
-Description=Viva Setubal Frontend
-After=network.target
-
-[Service]
-User=root
-WorkingDirectory=/root/Viva_Setubal/frontend
-Environment=HOST=0.0.0.0
-ExecStart=/usr/bin/env bash -lc 'yarn start'
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
 Ativar:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now viva-backend viva-frontend
+sudo systemctl enable --now viva-backend
 sudo systemctl status viva-backend --no-pager
 ```
+
+> O frontend não tem serviço — é estático (Nginx). O `nginx` e o `mongod` já arrancam sozinhos no boot.
 
 ## 6. Aceder e configurar
 
@@ -115,7 +102,17 @@ A app é uma **PWA instalável** (requer HTTPS — já garantido pelo DuckDNS).
 - **iPhone/Safari:** botão **Partilhar** → **"Adicionar ao ecrã principal"**.
 - Fica um ícone no telemóvel que abre a app em **ecrã cheio** (sem barra do browser).
 
-> Para offline completo e melhor desempenho, serve o **build de produção** (`cd frontend && yarn build`) pelo Nginx em vez do `yarn start`. Com `yarn start` a app já é instalável e tem fallback offline básico.
+> A app é servida pelo **build de produção** (Nginx) — PWA completa e mais rápida/estável.
+
+## 🔄 Atualizar a app (após `git pull`)
+
+```bash
+cd ~/Viva_Setubal && git pull
+# se mudou o backend:
+sudo systemctl restart viva-backend
+# se mudou o frontend (recompila e republica o build):
+bash scripts/build_frontend.sh
+```
 
 ## ✅ Verificações rápidas
 
@@ -126,7 +123,7 @@ curl -sk https://tkman91.duckdns.org:10443/api/ | head
 sudo /opt/certbot/bin/certbot certificates
 sudo /opt/certbot/bin/certbot renew --dry-run
 # Serviços a correr?
-sudo systemctl is-active mongod viva-backend viva-frontend
+sudo systemctl is-active mongod viva-backend nginx
 ```
 
 ## 🛠️ Se algo falhar
