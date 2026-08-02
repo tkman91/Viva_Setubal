@@ -68,6 +68,16 @@
 
 ## Estado / testes
 
+## Cargos / RBAC dinâmico (2026-08-02)
+- **Coleção `roles`**: `{id, name, modules[], is_admin, is_supervisor, is_system, created_at}`. Permissões dos utilizadores derivam SEMPRE do cargo (`role_id`), re-avaliadas a cada pedido via `enrich_role()` (fonte de verdade — não vão no JWT).
+- **Cargo "Administrador"** (is_system=true): acesso total, **não pode ser editado nem eliminado** (403). Só alterável no código.
+- **Migração automática no arranque**: "admin"→Administrador; "gestor"→cargo Gestor (is_supervisor); "funcionario"→cargo Funcionário. Remove campo `permissions` legado dos utilizadores.
+- **Endpoints**: `GET /api/roles` (auth), `POST/PUT/DELETE /api/roles` (admin). Delete bloqueado se cargo em uso (400) ou de sistema (403). Nome duplicado (400).
+- **Staff**: `POST/PUT /api/staff` usam `role_id` (removido `role`/`permissions` do input). `list_staff` enriquece cada funcionário com nome do cargo + módulos.
+- **Frontend**: nova página `/cargos` (admin-only, `Cargos.js`) — CRUD de cargos com seleção de módulos + toggle supervisão; cargo de sistema mostrado como protegido (sem botões). `Staff.js` passa a usar dropdown de cargo dinâmico com pré-visualização dos módulos. `AuthContext` usa `user.is_admin`/`is_supervisor`. Confirmação nativa ao eliminar cargo.
+- **Bug corrigido**: resposta de `POST /auth/login` agora também passa por `enrich_role()` (antes a sidebar admin ficava escondida até refresh).
+- Testado: backend 10/10 pytest (`tests/test_cargos_rbac.py`), frontend 12/12 fluxos RBAC — 100%.
+
 ## Backlog / próximos passos
 - P1: Integração real de faturação (InvoiceXpress/Moloni) — atualmente sync é simulado.
 - P1: Relatórios (módulo "relatorios") — horas trabalhadas por funcionário + custo salarial, exportação.

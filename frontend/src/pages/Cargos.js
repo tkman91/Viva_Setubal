@@ -53,6 +53,7 @@ export default function Cargos() {
   };
 
   const remove = async (id) => {
+    if (!window.confirm("Eliminar este cargo? Esta ação não pode ser revertida.")) return;
     try {
       await api.delete(`/roles/${id}`);
       toast.success("Cargo eliminado");

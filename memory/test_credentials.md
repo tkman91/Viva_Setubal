@@ -1,14 +1,16 @@
-# Test Credentials
+# Credenciais de teste
 
-## Admin (gestor total)
+## Admin (cargo "Administrador" — sistema, não eliminável)
 - Email: admin@restaurante.pt
 - Password: admin123
-- Role: admin (todas as permissões)
 
 ## Notas
-- Login: POST /api/auth/login  { email, password } -> { token, user }
-- Autenticação por Bearer token (Authorization: Bearer <token>)
-- Roles: admin, gestor, funcionario
-- Módulos/permissões: stock, picagem, staff, consumo, faturacao, relatorios
-- Novos funcionários são criados pelo admin em Gestão de Staff (definindo password e permissões).
-- Picagem de ponto requer configurar a localização do restaurante em Definições.
+- Cargos são dinâmicos (coleção `roles`). Migração automática no arranque:
+  - "admin" → cargo **Administrador** (is_system, is_admin, todos os módulos)
+  - "gestor" → cargo **Gestor** (is_supervisor)
+  - "funcionario" → cargo **Funcionário**
+- Permissões dos utilizadores derivam SEMPRE do cargo (campo `role_id`).
+- Endpoints: `GET /api/roles` (auth), `POST/PUT/DELETE /api/roles` (admin).
+  - Cargo `is_system=true` não pode ser editado nem eliminado (403).
+  - Cargo em uso por funcionários não pode ser eliminado (400).
+- Staff: `POST/PUT /api/staff` usa `role_id` (não mais `role`/`permissions`).
