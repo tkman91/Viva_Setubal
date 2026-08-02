@@ -32,15 +32,15 @@ export function AuthProvider({ children }) {
 
   const can = (module) => {
     if (!user) return false;
-    if (user.role === "admin") return true;
+    if (user.is_admin) return true;
     return (user.permissions || []).includes(module);
   };
 
-  const isAdmin = !!user && user.role === "admin";
+  const isAdmin = !!user && !!user.is_admin;
   const canManage = (module) => {
     if (!user) return false;
-    if (user.role === "admin") return true;
-    return user.role === "gestor" && (user.permissions || []).includes(module);
+    if (user.is_admin) return true;
+    return !!user.is_supervisor && (user.permissions || []).includes(module);
   };
 
   return (

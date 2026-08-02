@@ -11,7 +11,7 @@ const btnPrimary = "px-4 py-2 bg-primary text-primary-foreground font-semibold t
 
 export default function Consumo() {
   const { user } = useAuth();
-  const canSeeAll = !!user && (user.role === "admin" || (user.role === "gestor" && (user.permissions || []).includes("consumo")));
+  const canSeeAll = !!user && (user.is_admin || (user.is_supervisor && (user.permissions || []).includes("consumo")));
   const [items, setItems] = useState([]);
   const [products, setProducts] = useState([]);
   const [staff, setStaff] = useState([]);

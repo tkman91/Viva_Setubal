@@ -14,7 +14,7 @@ function fmtDuration(s) {
 
 export default function Picagem() {
   const { user } = useAuth();
-  const showAll = !!user && (user.role === "admin" || (user.role === "gestor" && (user.permissions || []).includes("picagem")));
+  const showAll = !!user && (user.is_admin || (user.is_supervisor && (user.permissions || []).includes("picagem")));
   const [status, setStatus] = useState(null);
   const [settings, setSettings] = useState(null);
   const [entries, setEntries] = useState([]);

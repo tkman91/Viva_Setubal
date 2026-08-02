@@ -91,20 +91,42 @@ async def get_current_user(
     if not user:
         raise HTTPException(status_code=401, detail="Utilizador não encontrado")
     user.pop("password_hash", None)
+    await enrich_role(user)
+    return user
+
+
+async def enrich_role(user: dict) -> dict:
+    """Deriva permissões/flags a partir do cargo (fonte de verdade), a cada pedido."""
+    role = None
+    if user.get("role_id"):
+        role = await db.roles.find_one({"id": user["role_id"]}, {"_id": 0})
+    if role is None:
+        role = await db.roles.find_one({"name": user.get("role")}, {"_id": 0})
+    if role:
+        user["role_id"] = role["id"]
+        user["role"] = role["name"]
+        user["is_admin"] = bool(role.get("is_admin"))
+        user["is_supervisor"] = bool(role.get("is_supervisor")) or bool(role.get("is_admin"))
+        user["permissions"] = MODULES if role.get("is_admin") else list(role.get("modules") or [])
+    else:
+        legacy = user.get("role")
+        user["is_admin"] = legacy == "admin"
+        user["is_supervisor"] = legacy in ("admin", "gestor")
+        user["permissions"] = MODULES if legacy == "admin" else list(user.get("permissions") or [])
     return user
 
 
 def has_permission(user: dict, module: str) -> bool:
-    if user.get("role") == "admin":
+    if user.get("is_admin"):
         return True
     return module in (user.get("permissions") or [])
 
 
 def can_manage(user: dict, module: str) -> bool:
-    """Âmbito de gestão/supervisão: admin, ou gestor que tenha a permissão do módulo."""
-    if user.get("role") == "admin":
+    """Âmbito de gestão/supervisão: admin, ou cargo supervisor com a permissão do módulo."""
+    if user.get("is_admin"):
         return True
-    return user.get("role") == "gestor" and module in (user.get("permissions") or [])
+    return bool(user.get("is_supervisor")) and module in (user.get("permissions") or [])
 
 
 def require_permission(module: str):
@@ -117,7 +139,7 @@ def require_permission(module: str):
 
 
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") != "admin":
+    if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Apenas o administrador")
     return user
 
@@ -161,22 +183,26 @@ class LoginInput(BaseModel):
     password: str
 
 
+class RoleInput(BaseModel):
+    name: str
+    modules: List[str] = Field(default_factory=list)
+    is_supervisor: bool = False
+
+
 class StaffCreate(BaseModel):
     name: str
     email: str
     password: str
-    role: str = "funcionario"  # admin | gestor | funcionario
+    role_id: str
     hourly_wage: float = 0.0
     phone: Optional[str] = ""
-    permissions: List[str] = Field(default_factory=list)
 
 
 class StaffUpdate(BaseModel):
     name: Optional[str] = None
-    role: Optional[str] = None
+    role_id: Optional[str] = None
     hourly_wage: Optional[float] = None
     phone: Optional[str] = None
-    permissions: Optional[List[str]] = None
     active: Optional[bool] = None
     password: Optional[str] = None
 
@@ -384,7 +410,10 @@ async def login(data: LoginInput, response: Response):
         raise HTTPException(status_code=403, detail="Conta desativada")
     token = create_access_token(user["id"])
     set_auth_cookie(response, token)
-    return {"user": clean(dict(user))}
+    u = clean(dict(user))
+    u.pop("password_hash", None)
+    await enrich_role(u)
+    return {"user": u}
 
 
 @api_router.post("/auth/logout")
@@ -404,7 +433,23 @@ async def me(user: dict = Depends(get_current_user)):
 @api_router.get("/staff")
 async def list_staff(user: dict = Depends(require_permission("staff"))):
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    roles = await db.roles.find({}, {"_id": 0}).to_list(200)
+    rmap = {r["id"]: r for r in roles}
+    for u in users:
+        r = rmap.get(u.get("role_id")) or next((x for x in roles if x["name"] == u.get("role")), None)
+        if r:
+            u["role"] = r["name"]
+            u["role_id"] = r["id"]
+            u["is_admin"] = bool(r.get("is_admin"))
+            u["permissions"] = MODULES if r.get("is_admin") else list(r.get("modules") or [])
     return users
+
+
+async def _resolve_role(role_id: str) -> dict:
+    role = await db.roles.find_one({"id": role_id}, {"_id": 0})
+    if not role:
+        raise HTTPException(status_code=400, detail="Cargo inválido")
+    return role
 
 
 @api_router.post("/staff")
@@ -412,22 +457,21 @@ async def create_staff(data: StaffCreate, user: dict = Depends(require_admin)):
     email = data.email.strip().lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email já registado")
-    perms = data.permissions
-    if data.role == "admin":
-        perms = MODULES
+    role = await _resolve_role(data.role_id)
     doc = {
         "id": str(uuid.uuid4()),
         "name": data.name,
         "email": email,
         "password_hash": hash_password(data.password),
-        "role": data.role,
+        "role_id": role["id"],
+        "role": role["name"],
         "hourly_wage": data.hourly_wage,
         "phone": data.phone,
-        "permissions": perms,
         "active": True,
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
+    doc.pop("_id", None)
     return clean(dict(doc))
 
 
@@ -439,10 +483,11 @@ async def update_staff(staff_id: str, data: StaffUpdate, user: dict = Depends(re
     upd = {k: v for k, v in data.model_dump().items() if v is not None}
     if "password" in upd:
         upd["password_hash"] = hash_password(upd.pop("password"))
-    if upd.get("role") == "admin":
-        upd["permissions"] = MODULES
-    elif upd.get("role") in ("gestor", "funcionario") and "permissions" not in upd and target.get("role") == "admin":
-        upd["permissions"] = []
+    if "role_id" in upd:
+        role = await _resolve_role(upd["role_id"])
+        upd["role_id"] = role["id"]
+        upd["role"] = role["name"]
+        upd.pop("permissions", None)
     await db.users.update_one({"id": staff_id}, {"$set": upd})
     doc = await db.users.find_one({"id": staff_id}, {"_id": 0, "password_hash": 0})
     return doc
@@ -453,6 +498,68 @@ async def delete_staff(staff_id: str, user: dict = Depends(require_admin)):
     if staff_id == user["id"]:
         raise HTTPException(status_code=400, detail="Não pode eliminar a própria conta")
     await db.users.delete_one({"id": staff_id})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Cargos (Roles) — RBAC dinâmico
+# ---------------------------------------------------------------------------
+@api_router.get("/roles")
+async def list_roles(user: dict = Depends(get_current_user)):
+    return await db.roles.find({}, {"_id": 0}).sort("created_at", 1).to_list(200)
+
+
+@api_router.post("/roles")
+async def create_role(data: RoleInput, user: dict = Depends(require_admin)):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nome obrigatório")
+    if await db.roles.find_one({"name": name}):
+        raise HTTPException(status_code=400, detail="Já existe um cargo com esse nome")
+    mods = [m for m in data.modules if m in MODULES]
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "modules": mods,
+        "is_admin": False,
+        "is_supervisor": bool(data.is_supervisor),
+        "is_system": False,
+        "created_at": now_iso(),
+    }
+    await db.roles.insert_one(doc)
+    return clean(dict(doc))
+
+
+@api_router.put("/roles/{role_id}")
+async def update_role(role_id: str, data: RoleInput, user: dict = Depends(require_admin)):
+    role = await db.roles.find_one({"id": role_id})
+    if not role:
+        raise HTTPException(status_code=404, detail="Cargo não encontrado")
+    if role.get("is_system"):
+        raise HTTPException(status_code=403, detail="O cargo de administrador não pode ser alterado")
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nome obrigatório")
+    if await db.roles.find_one({"name": name, "id": {"$ne": role_id}}):
+        raise HTTPException(status_code=400, detail="Já existe um cargo com esse nome")
+    mods = [m for m in data.modules if m in MODULES]
+    await db.roles.update_one({"id": role_id}, {"$set": {"name": name, "modules": mods, "is_supervisor": bool(data.is_supervisor)}})
+    # sincroniza o nome do cargo nos funcionários
+    await db.users.update_many({"role_id": role_id}, {"$set": {"role": name}})
+    return await db.roles.find_one({"id": role_id}, {"_id": 0})
+
+
+@api_router.delete("/roles/{role_id}")
+async def delete_role(role_id: str, user: dict = Depends(require_admin)):
+    role = await db.roles.find_one({"id": role_id})
+    if not role:
+        raise HTTPException(status_code=404, detail="Cargo não encontrado")
+    if role.get("is_system"):
+        raise HTTPException(status_code=403, detail="O cargo de administrador não pode ser eliminado")
+    in_use = await db.users.count_documents({"role_id": role_id})
+    if in_use:
+        raise HTTPException(status_code=400, detail=f"Cargo em uso por {in_use} funcionário(s). Reatribua-os primeiro.")
+    await db.roles.delete_one({"id": role_id})
     return {"ok": True}
 
 
@@ -623,7 +730,7 @@ async def register_consumption(data: ConsumptionInput, user: dict = Depends(requ
 
 @api_router.get("/consumption")
 async def list_consumption(user: dict = Depends(get_current_user)):
-    if has_permission(user, "consumo") and user.get("role") in ("admin", "gestor"):
+    if can_manage(user, "consumo"):
         items = await db.consumptions.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     else:
         items = await db.consumptions.find({"staff_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
@@ -1292,6 +1399,21 @@ async def dashboard(user: dict = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 async def startup():
+    # 1. Cargo de sistema Administrador (não pode ser eliminado)
+    admin_role = await db.roles.find_one({"is_system": True})
+    if not admin_role:
+        admin_role = {
+            "id": str(uuid.uuid4()),
+            "name": "Administrador",
+            "modules": MODULES,
+            "is_admin": True,
+            "is_supervisor": True,
+            "is_system": True,
+            "created_at": now_iso(),
+        }
+        await db.roles.insert_one(admin_role)
+
+    # 2. Utilizador admin (via .env)
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@restaurante.pt").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})
@@ -1301,16 +1423,59 @@ async def startup():
             "name": "Administrador",
             "email": admin_email,
             "password_hash": hash_password(admin_password),
-            "role": "admin",
+            "role_id": admin_role["id"],
+            "role": "Administrador",
             "hourly_wage": 0.0,
             "phone": "",
-            "permissions": MODULES,
             "active": True,
             "created_at": now_iso(),
         })
         logger.info("Admin criado: %s", admin_email)
-    elif not verify_password(admin_password, existing["password_hash"]):
-        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+    else:
+        patch = {}
+        if not verify_password(admin_password, existing["password_hash"]):
+            patch["password_hash"] = hash_password(admin_password)
+        if not existing.get("role_id") or existing.get("role") in ("admin", None):
+            patch["role_id"] = admin_role["id"]
+            patch["role"] = "Administrador"
+        if patch:
+            await db.users.update_one({"email": admin_email}, {"$set": patch})
+
+    # 3. Migração única de utilizadores legados (role string -> cargo dinâmico)
+    legacy = await db.users.find({"role_id": {"$exists": False}}).to_list(1000)
+    if legacy:
+        gestor_perms, func_perms = set(), set()
+        for u in legacy:
+            if u.get("role") == "gestor":
+                gestor_perms |= set(u.get("permissions") or [])
+            elif u.get("role") == "funcionario":
+                func_perms |= set(u.get("permissions") or [])
+        if not func_perms:
+            func_perms = {"picagem"}
+        gestor_role = await db.roles.find_one({"name": "Gestor"})
+        if gestor_role is None:
+            gestor_role = {
+                "id": str(uuid.uuid4()), "name": "Gestor",
+                "modules": sorted(gestor_perms & set(MODULES)) or ["stock", "picagem", "consumo", "faturacao", "relatorios"],
+                "is_admin": False, "is_supervisor": True, "is_system": False, "created_at": now_iso(),
+            }
+            await db.roles.insert_one(gestor_role)
+        func_role = await db.roles.find_one({"name": "Funcionário"})
+        if func_role is None:
+            func_role = {
+                "id": str(uuid.uuid4()), "name": "Funcionário",
+                "modules": sorted(func_perms & set(MODULES)),
+                "is_admin": False, "is_supervisor": False, "is_system": False, "created_at": now_iso(),
+            }
+            await db.roles.insert_one(func_role)
+        for u in legacy:
+            if u.get("role") == "admin":
+                rid, rname = admin_role["id"], "Administrador"
+            elif u.get("role") == "gestor":
+                rid, rname = gestor_role["id"], "Gestor"
+            else:
+                rid, rname = func_role["id"], "Funcionário"
+            await db.users.update_one({"id": u["id"]}, {"$set": {"role_id": rid, "role": rname}, "$unset": {"permissions": ""}})
 
 
 @api_router.get("/")

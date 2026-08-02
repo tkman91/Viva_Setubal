@@ -3,42 +3,39 @@ import api, { eur, formatApiError } from "@/lib/api";
 import { PageHeader } from "@/components/Layout";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Trash2, Shield } from "lucide-react";
 
-const MODULES = [
-  { key: "stock", label: "Stock" },
-  { key: "picagem", label: "Picagem" },
-  { key: "consumo", label: "Consumo" },
-  { key: "staff", label: "Staff" },
-  { key: "faturacao", label: "Faturação" },
-  { key: "relatorios", label: "Relatórios" },
-];
 const field = "w-full px-3 py-2 bg-background border border-input focus:outline-none focus:ring-2 focus:ring-primary text-sm";
 const btnPrimary = "px-4 py-2 bg-primary text-primary-foreground font-semibold text-sm hover:translate-y-[-1px] active:scale-[0.98] transition-transform duration-150";
 
-const empty = { name: "", email: "", password: "", role: "funcionario", hourly_wage: 0, phone: "", permissions: ["picagem"] };
+const empty = { name: "", email: "", password: "", role_id: "", hourly_wage: 0, phone: "" };
 
 export default function Staff() {
   const { user, isAdmin } = useAuth();
   const [staff, setStaff] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
 
-  const load = useCallback(() => api.get("/staff").then((r) => setStaff(r.data)), []);
+  const load = useCallback(() => {
+    api.get("/staff").then((r) => setStaff(r.data));
+    api.get("/roles").then((r) => setRoles(r.data));
+  }, []);
   useEffect(() => { load(); }, [load]);
 
-  const openNew = () => { setEditing(null); setForm(empty); setOpen(true); };
-  const openEdit = (s) => { setEditing(s); setForm({ ...s, password: "" }); setOpen(true); };
-
-  const togglePerm = (key) => {
-    const has = form.permissions.includes(key);
-    setForm({ ...form, permissions: has ? form.permissions.filter((p) => p !== key) : [...form.permissions, key] });
+  const defaultRoleId = () => {
+    const nonAdmin = roles.find((r) => !r.is_admin);
+    return (nonAdmin || roles[0])?.id || "";
   };
+
+  const openNew = () => { setEditing(null); setForm({ ...empty, role_id: defaultRoleId() }); setOpen(true); };
+  const openEdit = (s) => { setEditing(s); setForm({ ...s, password: "", role_id: s.role_id || "" }); setOpen(true); };
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!form.role_id) { toast.error("Selecione um cargo"); return; }
     try {
       const payload = { ...form, hourly_wage: Number(form.hourly_wage) };
       if (editing) {
@@ -66,11 +63,11 @@ export default function Staff() {
     }
   };
 
-  const roleColor = { admin: "bg-primary text-primary-foreground", gestor: "bg-accent text-accent-foreground", funcionario: "bg-secondary" };
+  const selectedRole = roles.find((r) => r.id === form.role_id);
 
   return (
     <div>
-      <PageHeader title="Gestão de Staff" subtitle="Funcionários, permissões e salários">
+      <PageHeader title="Gestão de Staff" subtitle="Funcionários, cargos e salários">
         {isAdmin && (
           <button data-testid="btn-add-staff" onClick={openNew} className={btnPrimary}><Plus className="w-4 h-4 inline mr-1" /> Funcionário</button>
         )}
@@ -85,7 +82,7 @@ export default function Staff() {
                   <div className="font-display text-xl font-bold tracking-tight">{s.name}</div>
                   <div className="mono text-xs text-muted-foreground">{s.email}</div>
                 </div>
-                <span className={`text-xs px-2 py-0.5 font-semibold ${roleColor[s.role]}`}>{s.role}</span>
+                <span className={`text-xs px-2 py-0.5 font-semibold ${s.is_admin ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>{s.role}</span>
               </div>
               <div className="flex items-center gap-2 mb-3 mono text-sm">
                 <span className="text-muted-foreground">Salário/h:</span> {eur(s.hourly_wage)}
@@ -117,30 +114,28 @@ export default function Staff() {
             <input data-testid="input-staff-password" type="password" placeholder={editing ? "Nova palavra-passe (deixe vazio p/ manter)" : "Palavra-passe"} required={!editing} className={field} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label-tech">Função</label>
-                <select data-testid="select-staff-role" className={field} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                  <option value="funcionario">Funcionário</option>
-                  <option value="gestor">Gestor</option>
-                  <option value="admin">Admin</option>
+                <label className="label-tech">Cargo</label>
+                <select data-testid="select-staff-role" required className={field} value={form.role_id} onChange={(e) => setForm({ ...form, role_id: e.target.value })}>
+                  <option value="">Selecionar...</option>
+                  {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
               <div><label className="label-tech">Salário/hora €</label><input type="number" step="any" className={field} value={form.hourly_wage} onChange={(e) => setForm({ ...form, hourly_wage: e.target.value })} /></div>
             </div>
-            <input placeholder="Telefone" className={field} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            {form.role !== "admin" && (
-              <div>
-                <label className="label-tech block mb-2">Permissões de acesso</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {MODULES.map((m) => (
-                    <label key={m.key} className="flex items-center gap-2 text-sm border border-border px-2 py-1.5 cursor-pointer">
-                      <input data-testid={`perm-${m.key}`} type="checkbox" checked={form.permissions.includes(m.key)} onChange={() => togglePerm(m.key)} />
-                      {m.label}
-                    </label>
-                  ))}
-                </div>
+            <input placeholder="Telefone" className={field} value={form.phone || ""} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            {selectedRole && (
+              <div className="border border-border p-3 bg-secondary/30">
+                <div className="label-tech mb-2">Acesso deste cargo</div>
+                {selectedRole.is_admin ? (
+                  <p className="text-xs text-muted-foreground">Acesso total a todos os módulos (administrador).</p>
+                ) : (selectedRole.modules || []).length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {selectedRole.modules.map((m) => <span key={m} className="text-[0.65rem] px-1.5 py-0.5 border border-border label-tech" style={{ letterSpacing: "0.1em" }}>{m}</span>)}
+                  </div>
+                ) : <p className="text-xs text-muted-foreground">Sem módulos atribuídos.</p>}
+                <p className="text-[0.7rem] text-muted-foreground mt-2">As permissões são definidas no cargo. Edite em <b>Cargos</b>.</p>
               </div>
             )}
-            {form.role === "admin" && <p className="text-xs text-muted-foreground">O administrador tem acesso total a todos os módulos.</p>}
             <button data-testid="btn-save-staff" className={btnPrimary + " w-full"}>{editing ? "Guardar alterações" : "Adicionar"}</button>
           </form>
         </DialogContent>
