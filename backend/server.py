@@ -108,11 +108,13 @@ async def enrich_role(user: dict) -> dict:
         user["is_admin"] = bool(role.get("is_admin"))
         user["is_supervisor"] = bool(role.get("is_supervisor")) or bool(role.get("is_admin"))
         user["permissions"] = MODULES if role.get("is_admin") else list(role.get("modules") or [])
+        user["rank"] = int(role.get("rank") or 0)
     else:
         legacy = user.get("role")
         user["is_admin"] = legacy == "admin"
         user["is_supervisor"] = legacy in ("admin", "gestor")
         user["permissions"] = MODULES if legacy == "admin" else list(user.get("permissions") or [])
+        user["rank"] = 100 if legacy == "admin" else 0
     return user
 
 
@@ -442,6 +444,7 @@ async def list_staff(user: dict = Depends(require_permission("staff"))):
             u["role_id"] = r["id"]
             u["is_admin"] = bool(r.get("is_admin"))
             u["permissions"] = MODULES if r.get("is_admin") else list(r.get("modules") or [])
+            u["rank"] = int(r.get("rank") or 0)
     return users
 
 
@@ -452,12 +455,19 @@ async def _resolve_role(role_id: str) -> dict:
     return role
 
 
+async def _role_rank(role_id: str) -> int:
+    r = await db.roles.find_one({"id": role_id}, {"_id": 0})
+    return int((r or {}).get("rank") or 0)
+
+
 @api_router.post("/staff")
 async def create_staff(data: StaffCreate, user: dict = Depends(require_admin)):
     email = data.email.strip().lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email já registado")
     role = await _resolve_role(data.role_id)
+    if int(role.get("rank") or 0) > int(user.get("rank") or 0):
+        raise HTTPException(status_code=403, detail="Não pode atribuir um cargo superior ao seu")
     doc = {
         "id": str(uuid.uuid4()),
         "name": data.name,
@@ -480,11 +490,16 @@ async def update_staff(staff_id: str, data: StaffUpdate, user: dict = Depends(re
     target = await db.users.find_one({"id": staff_id})
     if not target:
         raise HTTPException(status_code=404, detail="Funcionário não encontrado")
+    target_rank = await _role_rank(target.get("role_id"))
+    if target_rank > int(user.get("rank") or 0):
+        raise HTTPException(status_code=403, detail="Sem permissão para gerir contas deste cargo")
     upd = {k: v for k, v in data.model_dump().items() if v is not None}
     if "password" in upd:
         upd["password_hash"] = hash_password(upd.pop("password"))
     if "role_id" in upd:
         role = await _resolve_role(upd["role_id"])
+        if int(role.get("rank") or 0) > int(user.get("rank") or 0):
+            raise HTTPException(status_code=403, detail="Não pode atribuir um cargo superior ao seu")
         upd["role_id"] = role["id"]
         upd["role"] = role["name"]
         upd.pop("permissions", None)
@@ -497,6 +512,12 @@ async def update_staff(staff_id: str, data: StaffUpdate, user: dict = Depends(re
 async def delete_staff(staff_id: str, user: dict = Depends(require_admin)):
     if staff_id == user["id"]:
         raise HTTPException(status_code=400, detail="Não pode eliminar a própria conta")
+    target = await db.users.find_one({"id": staff_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="Funcionário não encontrado")
+    target_rank = await _role_rank(target.get("role_id"))
+    if target_rank > int(user.get("rank") or 0):
+        raise HTTPException(status_code=403, detail="Sem permissão para eliminar contas deste cargo")
     await db.users.delete_one({"id": staff_id})
     return {"ok": True}
 
@@ -524,6 +545,7 @@ async def create_role(data: RoleInput, user: dict = Depends(require_admin)):
         "is_admin": False,
         "is_supervisor": bool(data.is_supervisor),
         "is_system": False,
+        "rank": 0,
         "created_at": now_iso(),
     }
     await db.roles.insert_one(doc)
@@ -536,7 +558,7 @@ async def update_role(role_id: str, data: RoleInput, user: dict = Depends(requir
     if not role:
         raise HTTPException(status_code=404, detail="Cargo não encontrado")
     if role.get("is_system"):
-        raise HTTPException(status_code=403, detail="O cargo de administrador não pode ser alterado")
+        raise HTTPException(status_code=403, detail="Este cargo de sistema não pode ser alterado")
     name = data.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Nome obrigatório")
@@ -555,7 +577,7 @@ async def delete_role(role_id: str, user: dict = Depends(require_admin)):
     if not role:
         raise HTTPException(status_code=404, detail="Cargo não encontrado")
     if role.get("is_system"):
-        raise HTTPException(status_code=403, detail="O cargo de administrador não pode ser eliminado")
+        raise HTTPException(status_code=403, detail="Este cargo de sistema não pode ser eliminado")
     in_use = await db.users.count_documents({"role_id": role_id})
     if in_use:
         raise HTTPException(status_code=400, detail=f"Cargo em uso por {in_use} funcionário(s). Reatribua-os primeiro.")
@@ -1399,19 +1421,46 @@ async def dashboard(user: dict = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 async def startup():
-    # 1. Cargo de sistema Administrador (não pode ser eliminado)
-    admin_role = await db.roles.find_one({"is_system": True})
-    if not admin_role:
-        admin_role = {
-            "id": str(uuid.uuid4()),
-            "name": "Administrador",
-            "modules": MODULES,
-            "is_admin": True,
-            "is_supervisor": True,
-            "is_system": True,
-            "created_at": now_iso(),
-        }
-        await db.roles.insert_one(admin_role)
+    # 1. Cargos de sistema (protegidos, controlo total). Administrador (topo) > Dono/a.
+    async def ensure_system_role(name: str, rank: int) -> dict:
+        role = await db.roles.find_one({"name": name})
+        if role is None:
+            role = {
+                "id": str(uuid.uuid4()),
+                "name": name,
+                "modules": MODULES,
+                "is_admin": True,
+                "is_supervisor": True,
+                "is_system": True,
+                "rank": rank,
+                "created_at": now_iso(),
+            }
+            await db.roles.insert_one(role)
+        else:
+            patch = {}
+            if role.get("rank") != rank:
+                patch["rank"] = rank
+            if not role.get("is_admin"):
+                patch["is_admin"] = True
+            if not role.get("is_supervisor"):
+                patch["is_supervisor"] = True
+            if not role.get("is_system"):
+                patch["is_system"] = True
+            if role.get("modules") != MODULES:
+                patch["modules"] = MODULES
+            if patch:
+                await db.roles.update_one({"id": role["id"]}, {"$set": patch})
+                role.update(patch)
+        return role
+
+    admin_role = await ensure_system_role("Administrador", 100)
+    await ensure_system_role("Dono/a", 90)
+    # limpa qualquer flag de sistema herdada por cargos que não sejam os dois de topo
+    await db.roles.update_many(
+        {"is_system": True, "name": {"$nin": ["Administrador", "Dono/a"]}},
+        {"$set": {"is_system": False}},
+    )
+    await db.roles.update_many({"rank": {"$exists": False}}, {"$set": {"rank": 0}})
 
     # 2. Utilizador admin (via .env)
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@restaurante.pt").lower()
@@ -1457,7 +1506,7 @@ async def startup():
             gestor_role = {
                 "id": str(uuid.uuid4()), "name": "Gestor",
                 "modules": sorted(gestor_perms & set(MODULES)) or ["stock", "picagem", "consumo", "faturacao", "relatorios"],
-                "is_admin": False, "is_supervisor": True, "is_system": False, "created_at": now_iso(),
+                "is_admin": False, "is_supervisor": True, "is_system": False, "rank": 0, "created_at": now_iso(),
             }
             await db.roles.insert_one(gestor_role)
         func_role = await db.roles.find_one({"name": "Funcionário"})
@@ -1465,7 +1514,7 @@ async def startup():
             func_role = {
                 "id": str(uuid.uuid4()), "name": "Funcionário",
                 "modules": sorted(func_perms & set(MODULES)),
-                "is_admin": False, "is_supervisor": False, "is_system": False, "created_at": now_iso(),
+                "is_admin": False, "is_supervisor": False, "is_system": False, "rank": 0, "created_at": now_iso(),
             }
             await db.roles.insert_one(func_role)
         for u in legacy:

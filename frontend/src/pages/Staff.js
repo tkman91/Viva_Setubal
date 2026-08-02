@@ -25,9 +25,13 @@ export default function Staff() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  const myRank = Number(user?.rank || 0);
+  const assignableRoles = roles.filter((r) => Number(r.rank || 0) <= myRank);
+  const canManageTarget = (s) => Number(s.rank || 0) <= myRank;
+
   const defaultRoleId = () => {
-    const nonAdmin = roles.find((r) => !r.is_admin);
-    return (nonAdmin || roles[0])?.id || "";
+    const nonAdmin = assignableRoles.find((r) => !r.is_admin);
+    return (nonAdmin || assignableRoles[0])?.id || "";
   };
 
   const openNew = () => { setEditing(null); setForm({ ...empty, role_id: defaultRoleId() }); setOpen(true); };
@@ -92,7 +96,7 @@ export default function Staff() {
                   <span key={p} className="text-[0.65rem] px-1.5 py-0.5 border border-border label-tech" style={{ letterSpacing: "0.1em" }}>{p}</span>
                 ))}
               </div>
-              {isAdmin && (
+              {canManageTarget(s) && (
                 <div className="flex gap-2">
                   <button data-testid={`btn-edit-staff-${s.id}`} onClick={() => openEdit(s)} className="flex-1 py-1.5 border border-border text-sm hover:bg-secondary transition-colors duration-150 flex items-center justify-center gap-1"><Shield className="w-3.5 h-3.5" /> Gerir</button>
                   {s.id !== user.id && (
@@ -117,7 +121,7 @@ export default function Staff() {
                 <label className="label-tech">Cargo</label>
                 <select data-testid="select-staff-role" required className={field} value={form.role_id} onChange={(e) => setForm({ ...form, role_id: e.target.value })}>
                   <option value="">Selecionar...</option>
-                  {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  {assignableRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
               <div><label className="label-tech">Salário/hora €</label><input type="number" step="any" className={field} value={form.hourly_wage} onChange={(e) => setForm({ ...form, hourly_wage: e.target.value })} /></div>
