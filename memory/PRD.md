@@ -78,6 +78,12 @@
 - **Bug corrigido**: resposta de `POST /auth/login` agora também passa por `enrich_role()` (antes a sidebar admin ficava escondida até refresh).
 - Testado: backend 10/10 pytest (`tests/test_cargos_rbac.py`), frontend 12/12 fluxos RBAC — 100%.
 
+## Hierarquia de cargos: Administrador + Dono/a (2026-08-02, parte 2)
+- Dois cargos de sistema de topo, ambos com **controlo total** (is_admin, todos os módulos) e protegidos (is_system, não editáveis/elimináveis): **Administrador** (rank 100) e **Dono/a** (rank 90).
+- Campo `rank` nos cargos. Regras aplicadas no backend (staff): não atribuir cargo de rank superior ao próprio (anti-escalonamento); não gerir/eliminar contas de rank superior. Assim o Dono não apaga/edita o Administrador (cargo nem contas), mas o Administrador está acima e gere o Dono.
+- Frontend (`Staff.js`): dropdown de cargo mostra apenas cargos ≤ rank do próprio; botões Gerir/Eliminar escondidos para contas de rank superior.
+- Verificado por curl: Dono is_admin+controlo total; Dono→apagar cargo/conta Administrador = 403; Dono→atribuir Administrador = 403; Administrador→apagar Dono = 200.
+
 ## Backlog / próximos passos
 - P1: Integração real de faturação (InvoiceXpress/Moloni) — atualmente sync é simulado.
 - P1: Relatórios (módulo "relatorios") — horas trabalhadas por funcionário + custo salarial, exportação.

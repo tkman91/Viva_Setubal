@@ -27,7 +27,7 @@ export default function Staff() {
 
   const myRank = Number(user?.rank || 0);
   const assignableRoles = roles.filter((r) => Number(r.rank || 0) <= myRank);
-  const canManageTarget = (s) => Number(s.rank || 0) <= myRank;
+  const canManageTarget = (s) => isAdmin && Number(s.rank || 0) <= myRank;
 
   const defaultRoleId = () => {
     const nonAdmin = assignableRoles.find((r) => !r.is_admin);

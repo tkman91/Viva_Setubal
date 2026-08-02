@@ -1,16 +1,18 @@
 # Credenciais de teste
 
-## Admin (cargo "Administrador" — sistema, não eliminável)
+## Admin (cargo "Administrador" — sistema, rank 100, topo, não eliminável)
 - Email: admin@restaurante.pt
 - Password: admin123
 
-## Notas
-- Cargos são dinâmicos (coleção `roles`). Migração automática no arranque:
-  - "admin" → cargo **Administrador** (is_system, is_admin, todos os módulos)
-  - "gestor" → cargo **Gestor** (is_supervisor)
-  - "funcionario" → cargo **Funcionário**
-- Permissões dos utilizadores derivam SEMPRE do cargo (campo `role_id`).
-- Endpoints: `GET /api/roles` (auth), `POST/PUT/DELETE /api/roles` (admin).
-  - Cargo `is_system=true` não pode ser editado nem eliminado (403).
-  - Cargo em uso por funcionários não pode ser eliminado (400).
-- Staff: `POST/PUT /api/staff` usa `role_id` (não mais `role`/`permissions`).
+## Notas — RBAC / Cargos com hierarquia
+- Coleção `roles`: `{id, name, modules[], is_admin, is_supervisor, is_system, rank, created_at}`.
+- **Dois cargos de sistema de topo (protegidos, controlo total, is_admin=true, is_system=true):**
+  - **Administrador** — rank 100 (mais alto).
+  - **Dono/a** — rank 90.
+- Permissões derivam SEMPRE do cargo (`role_id`), re-avaliadas por pedido em `enrich_role` (inclui `rank`).
+- Hierarquia (rank):
+  - Não se pode atribuir/criar um funcionário com cargo de rank SUPERIOR ao do próprio (evita escalonamento). Ex: Dono não pode criar/atribuir Administrador → 403.
+  - Não se pode editar/eliminar contas cujo cargo tenha rank SUPERIOR ao próprio. Ex: Dono não gere contas Administrador → 403. Administrador gere Dono (200).
+  - Cargos `is_system=true` (Administrador e Dono/a) não são editáveis nem elimináveis (403 — "cargo de sistema").
+- Staff: `POST/PUT /api/staff` usam `role_id`.
+- Migração automática no arranque: admin→Administrador; gestor→Gestor; funcionario→Funcionário.
