@@ -99,6 +99,13 @@
 - **Correção** (`PUT /api/timeclock/entries/{id}`, require_manage): fechar ponto aberto e editar horas (entrada/saída); valida saída ≥ entrada; converte hora local→UTC; marca `checkout_reason="correction"`. `DELETE /api/timeclock/entries/{id}` **só para cargos de sistema** (`is_system` — Administrador/Dono).
 - `enrich_role` passa a expor `is_system`. Verificado por curl: schedule PUT/compliance OK; correção fecha/edita com duração correta; saída<entrada→400; delete por admin(is_system)→200, por não-sistema→403.
 
+## Horas/Salário, Resumo Semanal, Avisos e Tempos Configuráveis (2026-08-07, parte 3)
+- **Horas & Salário** (`GET /api/reports/hours?from&to`, módulo relatorios): soma horas trabalhadas por funcionário a partir das picagens fechadas e custo = horas × salário/hora; tabela + totais no módulo Relatórios com **exportação CSV** (separador ';').
+- **Resumo Semanal** (`GET /api/schedules/weekly-summary`): horas previstas (turnos) vs. efetivas por funcionário na semana atual, mostrado no separador Horário.
+- **Avisos** (coleção `notifications`): **atraso** criado na picagem de entrada quando entra após tolerância; **falta** detetada pelo worker (a cada 60s) quando passou início+tolerância sem picagem. `GET/POST /api/notifications(/read)` (require_manage picagem). Sino de notificações (`NotificationsBell`) na sidebar/topbar só para gestores, com contador de não lidos.
+- **Tempos configuráveis** em Definições: `late_tolerance_min` e `no_signal_minutes` (antes fixos em 5). Usados por compliance, _check_late_on_entry, _detect_faltas e auto_checkout_worker.
+- Testado: backend 8/8 pytest + frontend 4/4 fluxos + regressão (100%). Tester corrigiu NameError latente de `tol` em schedule_compliance.
+
 ## Backlog / próximos passos
 - P1: Integração real de faturação (InvoiceXpress/Moloni) — atualmente sync é simulado.
 - P1: Relatórios (módulo "relatorios") — horas trabalhadas por funcionário + custo salarial, exportação.
