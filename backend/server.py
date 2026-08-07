@@ -292,6 +292,8 @@ class SettingsInput(BaseModel):
     lat: float
     lng: float
     radius_m: float = 100.0
+    late_tolerance_min: int = 5
+    no_signal_minutes: int = 5
 
 
 # --- POS configuração ---
@@ -683,7 +685,11 @@ async def list_movements(user: dict = Depends(require_permission("stock"))):
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
     s = await db.settings.find_one({"id": "main"}, {"_id": 0})
-    return s or {}
+    if not s:
+        return {}
+    s.setdefault("late_tolerance_min", 5)
+    s.setdefault("no_signal_minutes", 5)
+    return s
 
 
 @api_router.put("/settings")
@@ -736,6 +742,7 @@ async def punch(data: ClockInput, user: dict = Depends(require_permission("picag
         "checkout_reason": None,
     }
     await db.time_entries.insert_one(entry)
+    await _check_late_on_entry(user, now)
     return {"action": "entrada", "distance_m": int(dist)}
 
 
@@ -820,6 +827,8 @@ async def set_schedule(user_id: str, data: ScheduleInput, user: dict = Depends(r
 async def schedule_compliance(date: Optional[str] = None, user: dict = Depends(require_manage("picagem"))):
     target = datetime.now(LISBON).date() if not date else datetime.fromisoformat(date).date()
     wk = WEEKDAY_KEYS[target.weekday()]
+    settings_doc = await db.settings.find_one({"id": "main"}) or {}
+    tol = int(settings_doc.get("late_tolerance_min") or 5)
     scheds = await db.schedules.find({}, {"_id": 0}).to_list(1000)
     users = {u["id"]: u for u in await db.users.find({}, {"_id": 0}).to_list(1000)}
     start = (datetime.combine(target, datetime.min.time(), LISBON) - timedelta(hours=3)).astimezone(timezone.utc).isoformat()
@@ -851,7 +860,7 @@ async def schedule_compliance(date: Optional[str] = None, user: dict = Depends(r
             items.append({"user_id": uid, "user_name": u["name"], "scheduled_start": shift.get("start"), "scheduled_end": shift.get("end"), "actual_in": None, "status": "falta", "late_minutes": None})
         else:
             late = (actual.hour * 60 + actual.minute) - sched_min
-            items.append({"user_id": uid, "user_name": u["name"], "scheduled_start": shift.get("start"), "scheduled_end": shift.get("end"), "actual_in": actual.strftime("%H:%M"), "status": "atraso" if late > LATE_TOLERANCE_MIN else "presente", "late_minutes": late})
+            items.append({"user_id": uid, "user_name": u["name"], "scheduled_start": shift.get("start"), "scheduled_end": shift.get("end"), "actual_in": actual.strftime("%H:%M"), "status": "atraso" if late > tol else "presente", "late_minutes": late})
     return {"date": target.isoformat(), "weekday": wk, "items": items}
 
 
@@ -890,6 +899,151 @@ async def delete_entry(entry_id: str, user: dict = Depends(require_manage("picag
         raise HTTPException(status_code=403, detail="Apenas cargos de sistema (Administrador/Dono) podem eliminar picagens")
     await db.time_entries.delete_one({"id": entry_id})
     return {"ok": True}
+
+
+# --- Avisos (atrasos e faltas) ---
+async def _create_notification(ntype: str, uid: str, uname: str, message: str, date_str: str):
+    exists = await db.notifications.find_one({"type": ntype, "user_id": uid, "date": date_str})
+    if exists:
+        return
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()), "type": ntype, "user_id": uid, "user_name": uname,
+        "message": message, "date": date_str, "created_at": now_iso(), "read": False,
+    })
+
+
+async def _check_late_on_entry(user: dict, clock_in_iso: str):
+    sched = await db.schedules.find_one({"user_id": user["id"]})
+    if not sched:
+        return
+    cin = datetime.fromisoformat(clock_in_iso).astimezone(LISBON)
+    wk = WEEKDAY_KEYS[cin.date().weekday()]
+    shift = (sched.get("shifts") or {}).get(wk) or {}
+    if shift.get("off") or not shift.get("start"):
+        return
+    settings_doc = await db.settings.find_one({"id": "main"}) or {}
+    tol = int(settings_doc.get("late_tolerance_min") or 5)
+    late = (cin.hour * 60 + cin.minute) - _hhmm_to_min(shift["start"])
+    if late > tol:
+        await _create_notification("atraso", user["id"], user["name"], f"Entrou às {cin.strftime('%H:%M')} (turno {shift['start']}, +{late} min de atraso)", cin.date().isoformat())
+
+
+async def _detect_faltas(tol: int):
+    nowL = datetime.now(LISBON)
+    target = nowL.date()
+    wk = WEEKDAY_KEYS[target.weekday()]
+    scheds = await db.schedules.find({}, {"_id": 0}).to_list(1000)
+    if not scheds:
+        return
+    users = {u["id"]: u for u in await db.users.find({}, {"_id": 0}).to_list(1000)}
+    start = (datetime.combine(target, datetime.min.time(), LISBON) - timedelta(hours=3)).astimezone(timezone.utc).isoformat()
+    end = (datetime.combine(target, datetime.max.time(), LISBON) + timedelta(hours=3)).astimezone(timezone.utc).isoformat()
+    entries = await db.time_entries.find({"clock_in": {"$gte": start, "$lte": end}}, {"_id": 0}).to_list(2000)
+    punched = set()
+    for e in entries:
+        try:
+            cin = datetime.fromisoformat(e["clock_in"]).astimezone(LISBON)
+        except Exception:
+            continue
+        if cin.date() == target:
+            punched.add(e.get("user_id"))
+    now_min = nowL.hour * 60 + nowL.minute
+    for s in scheds:
+        shift = (s.get("shifts") or {}).get(wk) or {}
+        if shift.get("off") or not shift.get("start"):
+            continue
+        uid = s["user_id"]
+        if uid in punched or now_min < _hhmm_to_min(shift["start"]) + tol:
+            continue
+        u = users.get(uid)
+        if not u:
+            continue
+        await _create_notification("falta", uid, u["name"], f"Falta ao turno de {shift['start']} (sem picagem)", target.isoformat())
+
+
+@api_router.get("/notifications")
+async def list_notifications(user: dict = Depends(require_manage("picagem"))):
+    items = await db.notifications.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    unread = await db.notifications.count_documents({"read": False})
+    return {"items": items, "unread": unread}
+
+
+@api_router.post("/notifications/read")
+async def mark_notifications_read(user: dict = Depends(require_manage("picagem"))):
+    await db.notifications.update_many({"read": False}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api_router.get("/schedules/weekly-summary")
+async def weekly_summary(week_start: Optional[str] = None, user: dict = Depends(require_manage("picagem"))):
+    if week_start:
+        d0 = datetime.fromisoformat(week_start).date()
+    else:
+        today = datetime.now(LISBON).date()
+        d0 = today - timedelta(days=today.weekday())
+    d6 = d0 + timedelta(days=6)
+    scheds = {s["user_id"]: s for s in await db.schedules.find({}, {"_id": 0}).to_list(1000)}
+    users = await db.users.find({}, {"_id": 0}).to_list(1000)
+    start = (datetime.combine(d0, datetime.min.time(), LISBON) - timedelta(hours=3)).astimezone(timezone.utc).isoformat()
+    end = (datetime.combine(d6, datetime.max.time(), LISBON) + timedelta(hours=3)).astimezone(timezone.utc).isoformat()
+    entries = await db.time_entries.find({"clock_in": {"$gte": start, "$lte": end}, "clock_out": {"$ne": None}}, {"_id": 0}).to_list(5000)
+    actual = {}
+    for e in entries:
+        try:
+            cin = datetime.fromisoformat(e["clock_in"]).astimezone(LISBON).date()
+        except Exception:
+            continue
+        if cin < d0 or cin > d6:
+            continue
+        actual[e["user_id"]] = actual.get(e["user_id"], 0.0) + float(e.get("duration_seconds") or 0)
+    items = []
+    for u in users:
+        shifts = (scheds.get(u["id"], {}) or {}).get("shifts", {})
+        planned = 0.0
+        for k in WEEKDAY_KEYS:
+            sh = shifts.get(k) or {}
+            if sh.get("off") or not sh.get("start") or not sh.get("end"):
+                continue
+            mins = _hhmm_to_min(sh["end"]) - _hhmm_to_min(sh["start"])
+            if mins > 0:
+                planned += mins / 60
+        items.append({"user_id": u["id"], "user_name": u["name"], "planned_hours": round(planned, 2), "actual_hours": round(actual.get(u["id"], 0.0) / 3600, 2)})
+    items.sort(key=lambda x: x["user_name"])
+    return {"week_start": d0.isoformat(), "week_end": d6.isoformat(), "items": items}
+
+
+@api_router.get("/reports/hours")
+async def reports_hours(from_: str = Query(..., alias="from"), to: str = Query(...), user: dict = Depends(require_permission("relatorios"))):
+    d_from = datetime.fromisoformat(from_).date()
+    d_to = datetime.fromisoformat(to).date()
+    start = (datetime.combine(d_from, datetime.min.time(), LISBON) - timedelta(hours=3)).astimezone(timezone.utc).isoformat()
+    end = (datetime.combine(d_to, datetime.max.time(), LISBON) + timedelta(hours=3)).astimezone(timezone.utc).isoformat()
+    entries = await db.time_entries.find({"clock_in": {"$gte": start, "$lte": end}, "clock_out": {"$ne": None}}, {"_id": 0}).to_list(5000)
+    users = {u["id"]: u for u in await db.users.find({}, {"_id": 0}).to_list(1000)}
+    agg = {}
+    for e in entries:
+        try:
+            cin = datetime.fromisoformat(e["clock_in"]).astimezone(LISBON).date()
+        except Exception:
+            continue
+        if cin < d_from or cin > d_to:
+            continue
+        if e.get("user_id") not in users:
+            continue
+        agg[e["user_id"]] = agg.get(e["user_id"], 0.0) + float(e.get("duration_seconds") or 0)
+    items = []
+    total_hours = 0.0
+    total_cost = 0.0
+    for uid, secs in agg.items():
+        u = users.get(uid) or {}
+        hours = round(secs / 3600, 2)
+        wage = float(u.get("hourly_wage") or 0)
+        cost = round(hours * wage, 2)
+        total_hours += hours
+        total_cost += cost
+        items.append({"user_id": uid, "user_name": u.get("name", "?"), "hours": hours, "hourly_wage": wage, "cost": cost})
+    items.sort(key=lambda x: x["user_name"])
+    return {"from": d_from.isoformat(), "to": d_to.isoformat(), "items": items, "total_hours": round(total_hours, 2), "total_cost": round(total_cost, 2)}
 
 
 # ---------------------------------------------------------------------------
@@ -1735,11 +1889,14 @@ async def shutdown_db_client():
 
 
 async def auto_checkout_worker():
-    """Fecha pontos abertos sem heartbeat há mais de AUTO_CHECKOUT_GRACE_SECONDS (app fechada / sem GPS)."""
+    """Fecha pontos sem heartbeat (no_signal) e deteta faltas ao turno."""
     while True:
         try:
             await asyncio.sleep(60)
-            cutoff = datetime.now(timezone.utc) - timedelta(seconds=AUTO_CHECKOUT_GRACE_SECONDS)
+            settings_doc = await db.settings.find_one({"id": "main"}) or {}
+            grace = int(settings_doc.get("no_signal_minutes") or 5) * 60
+            tol = int(settings_doc.get("late_tolerance_min") or 5)
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=grace)
             open_entries = await db.time_entries.find({"clock_out": None}).to_list(1000)
             for e in open_entries:
                 last = e.get("last_seen") or e.get("clock_in")
@@ -1766,6 +1923,7 @@ async def auto_checkout_worker():
                             "checkout_reason": "no_signal",
                         }},
                     )
+            await _detect_faltas(tol)
         except asyncio.CancelledError:
             break
         except Exception as ex:

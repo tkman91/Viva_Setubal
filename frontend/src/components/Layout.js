@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import NotificationsBell from "@/components/NotificationsBell";
 import {
   LayoutDashboard,
   Package,
@@ -92,9 +93,12 @@ export default function Layout({ children }) {
         })}
       </nav>
       <div className="border-t border-border p-4">
-        <div className="mb-3">
-          <div className="text-sm font-semibold truncate">{user?.name}</div>
-          <div className="label-tech" style={{ fontSize: "0.6rem" }}>{user?.role}</div>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold truncate">{user?.name}</div>
+            <div className="label-tech" style={{ fontSize: "0.6rem" }}>{user?.role}</div>
+          </div>
+          <NotificationsBell />
         </div>
         <button
           data-testid="btn-theme-toggle"
@@ -142,9 +146,12 @@ export default function Layout({ children }) {
             </div>
             <span className="font-display font-bold tracking-tight">GESTÃO</span>
           </div>
-          <button data-testid="btn-theme-toggle-mobile" onClick={cycleMode} className="p-2 -mr-1" aria-label="Tema">
-            <ThemeIcon className="w-5 h-5" />
-          </button>
+          <div className="flex items-center">
+            <NotificationsBell />
+            <button data-testid="btn-theme-toggle-mobile" onClick={cycleMode} className="p-2 -mr-1" aria-label="Tema">
+              <ThemeIcon className="w-5 h-5" />
+            </button>
+          </div>
         </div>
         <main className="flex-1 min-w-0">{children}</main>
       </div>

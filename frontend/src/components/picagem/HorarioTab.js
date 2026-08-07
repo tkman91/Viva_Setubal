@@ -26,8 +26,12 @@ export default function HorarioTab() {
   const [form, setForm] = useState(emptyShifts());
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [compliance, setCompliance] = useState([]);
+  const [weekly, setWeekly] = useState(null);
 
-  const load = useCallback(() => api.get("/schedules").then((r) => setRows(r.data)), []);
+  const load = useCallback(() => {
+    api.get("/schedules").then((r) => setRows(r.data));
+    api.get("/schedules/weekly-summary").then((r) => setWeekly(r.data)).catch(() => setWeekly(null));
+  }, []);
   const loadCompliance = useCallback((d) => api.get(`/schedules/compliance?date=${d}`).then((r) => setCompliance(r.data.items)).catch(() => setCompliance([])), []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadCompliance(date); }, [date, loadCompliance]);
@@ -76,6 +80,23 @@ export default function HorarioTab() {
             );
           })}
           {compliance.length === 0 && <p className="text-sm text-muted-foreground">Sem turnos definidos para este dia.</p>}
+        </div>
+      </div>
+
+      <div className="bg-card border border-border p-6 mb-1">
+        <div className="label-tech mb-4">Resumo semanal — horas previstas vs. efetivas {weekly ? `(${weekly.week_start} a ${weekly.week_end})` : ""}</div>
+        <div className="flex flex-wrap gap-2">
+          {(weekly?.items || []).map((w) => {
+            const diff = +(w.actual_hours - w.planned_hours).toFixed(2);
+            return (
+              <div key={w.user_id} data-testid={`weekly-${w.user_id}`} className="border border-border px-3 py-2 min-w-[170px]">
+                <div className="text-sm font-medium">{w.user_name}</div>
+                <div className="mono text-xs text-muted-foreground">Previsto {w.planned_hours}h · Efetivo {w.actual_hours}h</div>
+                <span className={`inline-block mt-1 text-[0.65rem] px-1.5 py-0.5 label-tech ${diff < 0 ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary"}`}>{diff >= 0 ? "+" : ""}{diff}h</span>
+              </div>
+            );
+          })}
+          {(!weekly?.items?.length) && <p className="text-sm text-muted-foreground">Sem dados esta semana.</p>}
         </div>
       </div>
 

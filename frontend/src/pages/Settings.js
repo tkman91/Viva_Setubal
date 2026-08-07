@@ -8,7 +8,7 @@ const field = "w-full px-3 py-2 bg-background border border-input focus:outline-
 const btnPrimary = "px-4 py-2 bg-primary text-primary-foreground font-semibold text-sm hover:translate-y-[-1px] active:scale-[0.98] transition-transform duration-150";
 
 export default function Settings() {
-  const [form, setForm] = useState({ restaurant_name: "", lat: "", lng: "", radius_m: 100 });
+  const [form, setForm] = useState({ restaurant_name: "", lat: "", lng: "", radius_m: 100, late_tolerance_min: 5, no_signal_minutes: 5 });
 
   useEffect(() => {
     api.get("/settings").then((r) => { if (r.data && r.data.lat) setForm(r.data); });
@@ -34,6 +34,8 @@ export default function Settings() {
         lat: Number(form.lat),
         lng: Number(form.lng),
         radius_m: Number(form.radius_m),
+        late_tolerance_min: Number(form.late_tolerance_min),
+        no_signal_minutes: Number(form.no_signal_minutes),
       });
       toast.success("Definições guardadas");
     } catch (err) {
@@ -59,6 +61,10 @@ export default function Settings() {
           <div>
             <label className="label-tech block mb-1">Raio permitido (metros)</label>
             <input data-testid="input-radius" required type="number" className={field} value={form.radius_m} onChange={(e) => setForm({ ...form, radius_m: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border">
+            <div><label className="label-tech block mb-1">Tolerância de atraso (min)</label><input data-testid="input-late-tolerance" type="number" min="0" className={field} value={form.late_tolerance_min} onChange={(e) => setForm({ ...form, late_tolerance_min: e.target.value })} /></div>
+            <div><label className="label-tech block mb-1">Fecho sem sinal (min)</label><input data-testid="input-no-signal" type="number" min="1" className={field} value={form.no_signal_minutes} onChange={(e) => setForm({ ...form, no_signal_minutes: e.target.value })} /></div>
           </div>
           <button data-testid="btn-save-settings" className={btnPrimary + " w-full"}>Guardar definições</button>
         </form>
