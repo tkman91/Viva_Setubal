@@ -7,7 +7,8 @@ import bcrypt
 import logging
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -49,6 +50,12 @@ MODULES = ["stock", "picagem", "staff", "consumo", "faturacao", "relatorios"]
 
 # Fecho automático de ponto: se não houver sinal (heartbeat) durante este tempo, fecha por "no_signal".
 AUTO_CHECKOUT_GRACE_SECONDS = 300  # 5 minutos
+WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+LATE_TOLERANCE_MIN = 5
+try:
+    LISBON = ZoneInfo("Europe/Lisbon")
+except Exception:
+    LISBON = timezone.utc
 
 # ---------------------------------------------------------------------------
 # Auth helpers
@@ -113,12 +120,14 @@ async def enrich_role(user: dict) -> dict:
         user["is_supervisor"] = bool(role.get("is_supervisor")) or bool(role.get("is_admin"))
         user["permissions"] = MODULES if role.get("is_admin") else list(role.get("modules") or [])
         user["rank"] = int(role.get("rank") or 0)
+        user["is_system"] = bool(role.get("is_system"))
     else:
         legacy = user.get("role")
         user["is_admin"] = legacy == "admin"
         user["is_supervisor"] = legacy in ("admin", "gestor")
         user["permissions"] = MODULES if legacy == "admin" else list(user.get("permissions") or [])
         user["rank"] = 100 if legacy == "admin" else 0
+        user["is_system"] = legacy == "admin"
     return user
 
 
@@ -148,6 +157,15 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Apenas o administrador")
     return user
+
+
+def require_manage(module: str):
+    async def dep(user: dict = Depends(get_current_user)) -> dict:
+        if not can_manage(user, module):
+            raise HTTPException(status_code=403, detail="Sem permissão de gestão para este módulo")
+        return user
+
+    return dep
 
 
 def set_auth_cookie(response: Response, token: str):
@@ -251,6 +269,15 @@ class StockMovementInput(BaseModel):
 class ClockInput(BaseModel):
     lat: float
     lng: float
+
+
+class ScheduleInput(BaseModel):
+    shifts: dict = Field(default_factory=dict)
+
+
+class EntryUpdate(BaseModel):
+    clock_in: Optional[str] = None
+    clock_out: Optional[str] = None
 
 
 class ConsumptionInput(BaseModel):
@@ -753,6 +780,116 @@ async def clock_entries(user: dict = Depends(get_current_user)):
     else:
         entries = await db.time_entries.find({"user_id": user["id"]}, {"_id": 0}).sort("clock_in", -1).to_list(100)
     return entries
+
+
+def _hhmm_to_min(s: str) -> int:
+    try:
+        h, m = s.split(":")
+        return int(h) * 60 + int(m)
+    except Exception:
+        return 0
+
+
+def _to_utc_iso(s: str) -> str:
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=LISBON)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+# --- Horário semanal + cumprimento ---
+@api_router.get("/schedules")
+async def list_schedules(user: dict = Depends(require_manage("picagem"))):
+    users = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "role": 1}).to_list(1000)
+    scheds = await db.schedules.find({}, {"_id": 0}).to_list(1000)
+    smap = {s["user_id"]: s.get("shifts", {}) for s in scheds}
+    return [{"user_id": u["id"], "user_name": u["name"], "role": u.get("role"), "shifts": smap.get(u["id"], {})} for u in users]
+
+
+@api_router.put("/schedules/{user_id}")
+async def set_schedule(user_id: str, data: ScheduleInput, user: dict = Depends(require_manage("picagem"))):
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="Funcionário não encontrado")
+    shifts = {k: v for k, v in (data.shifts or {}).items() if k in WEEKDAY_KEYS}
+    await db.schedules.update_one({"user_id": user_id}, {"$set": {"user_id": user_id, "shifts": shifts}}, upsert=True)
+    return {"user_id": user_id, "shifts": shifts}
+
+
+@api_router.get("/schedules/compliance")
+async def schedule_compliance(date: Optional[str] = None, user: dict = Depends(require_manage("picagem"))):
+    target = datetime.now(LISBON).date() if not date else datetime.fromisoformat(date).date()
+    wk = WEEKDAY_KEYS[target.weekday()]
+    scheds = await db.schedules.find({}, {"_id": 0}).to_list(1000)
+    users = {u["id"]: u for u in await db.users.find({}, {"_id": 0}).to_list(1000)}
+    start = (datetime.combine(target, datetime.min.time(), LISBON) - timedelta(hours=3)).astimezone(timezone.utc).isoformat()
+    end = (datetime.combine(target, datetime.max.time(), LISBON) + timedelta(hours=3)).astimezone(timezone.utc).isoformat()
+    entries = await db.time_entries.find({"clock_in": {"$gte": start, "$lte": end}}, {"_id": 0}).to_list(2000)
+    first_in = {}
+    for e in entries:
+        try:
+            cin = datetime.fromisoformat(e["clock_in"]).astimezone(LISBON)
+        except Exception:
+            continue
+        if cin.date() != target:
+            continue
+        uid = e.get("user_id")
+        if uid not in first_in or cin < first_in[uid]:
+            first_in[uid] = cin
+    items = []
+    for s in scheds:
+        shift = (s.get("shifts") or {}).get(wk) or {}
+        if shift.get("off") or not shift.get("start"):
+            continue
+        uid = s["user_id"]
+        u = users.get(uid)
+        if not u:
+            continue
+        sched_min = _hhmm_to_min(shift["start"])
+        actual = first_in.get(uid)
+        if actual is None:
+            items.append({"user_id": uid, "user_name": u["name"], "scheduled_start": shift.get("start"), "scheduled_end": shift.get("end"), "actual_in": None, "status": "falta", "late_minutes": None})
+        else:
+            late = (actual.hour * 60 + actual.minute) - sched_min
+            items.append({"user_id": uid, "user_name": u["name"], "scheduled_start": shift.get("start"), "scheduled_end": shift.get("end"), "actual_in": actual.strftime("%H:%M"), "status": "atraso" if late > LATE_TOLERANCE_MIN else "presente", "late_minutes": late})
+    return {"date": target.isoformat(), "weekday": wk, "items": items}
+
+
+# --- Correção de picagens (gestor) ---
+@api_router.put("/timeclock/entries/{entry_id}")
+async def correct_entry(entry_id: str, data: EntryUpdate, user: dict = Depends(require_manage("picagem"))):
+    entry = await db.time_entries.find_one({"id": entry_id})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Registo não encontrado")
+    upd = {}
+    ci_iso = _to_utc_iso(data.clock_in) if data.clock_in else entry["clock_in"]
+    upd["clock_in"] = ci_iso
+    ci_dt = datetime.fromisoformat(ci_iso)
+    if data.clock_out:
+        co_iso = _to_utc_iso(data.clock_out)
+        co_dt = datetime.fromisoformat(co_iso)
+        if co_dt < ci_dt:
+            raise HTTPException(status_code=400, detail="A saída não pode ser anterior à entrada")
+        upd["clock_out"] = co_iso
+        upd["duration_seconds"] = max(0, (co_dt - ci_dt).total_seconds())
+        if not entry.get("clock_out"):
+            upd["auto_checkout"] = False
+            upd["checkout_reason"] = "correction"
+    elif entry.get("clock_out"):
+        co_dt = datetime.fromisoformat(entry["clock_out"])
+        if co_dt < ci_dt:
+            raise HTTPException(status_code=400, detail="A saída não pode ser anterior à entrada")
+        upd["duration_seconds"] = max(0, (co_dt - ci_dt).total_seconds())
+    await db.time_entries.update_one({"id": entry_id}, {"$set": upd})
+    return await db.time_entries.find_one({"id": entry_id}, {"_id": 0})
+
+
+@api_router.delete("/timeclock/entries/{entry_id}")
+async def delete_entry(entry_id: str, user: dict = Depends(require_manage("picagem"))):
+    if not user.get("is_system"):
+        raise HTTPException(status_code=403, detail="Apenas cargos de sistema (Administrador/Dono) podem eliminar picagens")
+    await db.time_entries.delete_one({"id": entry_id})
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
