@@ -1,6 +1,7 @@
 import os
 import uuid
 import math
+import asyncio
 import jwt
 import bcrypt
 import logging
@@ -45,6 +46,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("restaurante")
 
 MODULES = ["stock", "picagem", "staff", "consumo", "faturacao", "relatorios"]
+
+# Fecho automático de ponto: se não houver sinal (heartbeat) durante este tempo, fecha por "no_signal".
+AUTO_CHECKOUT_GRACE_SECONDS = 300  # 5 minutos
 
 # ---------------------------------------------------------------------------
 # Auth helpers
@@ -682,21 +686,58 @@ async def punch(data: ClockInput, user: dict = Depends(require_permission("picag
         seconds = (datetime.fromisoformat(out) - datetime.fromisoformat(open_entry["clock_in"])).total_seconds()
         await db.time_entries.update_one(
             {"id": open_entry["id"]},
-            {"$set": {"clock_out": out, "clock_out_lat": data.lat, "clock_out_lng": data.lng, "duration_seconds": seconds}},
+            {"$set": {
+                "clock_out": out, "clock_out_lat": data.lat, "clock_out_lng": data.lng,
+                "duration_seconds": seconds, "auto_checkout": False, "checkout_reason": "manual",
+            }},
         )
         return {"action": "saida", "distance_m": int(dist), "duration_seconds": seconds}
+    now = now_iso()
     entry = {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "user_name": user["name"],
-        "clock_in": now_iso(),
+        "clock_in": now,
         "clock_in_lat": data.lat,
         "clock_in_lng": data.lng,
         "clock_out": None,
         "duration_seconds": 0,
+        "last_seen": now,
+        "last_lat": data.lat,
+        "last_lng": data.lng,
+        "auto_checkout": False,
+        "checkout_reason": None,
     }
     await db.time_entries.insert_one(entry)
     return {"action": "entrada", "distance_m": int(dist)}
+
+
+@api_router.post("/timeclock/heartbeat")
+async def timeclock_heartbeat(data: ClockInput, user: dict = Depends(require_permission("picagem"))):
+    """Recebe a localização periódica enquanto em serviço. Fecha o ponto automaticamente se sair do raio."""
+    open_entry = await db.time_entries.find_one({"user_id": user["id"], "clock_out": None})
+    if not open_entry:
+        return {"clocked_in": False}
+    settings = await db.settings.find_one({"id": "main"})
+    now = now_iso()
+    dist = None
+    if settings and settings.get("lat") is not None:
+        dist = haversine(data.lat, data.lng, settings["lat"], settings["lng"])
+        if dist > settings["radius_m"]:
+            seconds = (datetime.fromisoformat(now) - datetime.fromisoformat(open_entry["clock_in"])).total_seconds()
+            await db.time_entries.update_one(
+                {"id": open_entry["id"]},
+                {"$set": {
+                    "clock_out": now, "clock_out_lat": data.lat, "clock_out_lng": data.lng,
+                    "duration_seconds": max(0, seconds), "auto_checkout": True, "checkout_reason": "out_of_radius",
+                }},
+            )
+            return {"clocked_in": False, "auto_checkout": True, "reason": "out_of_radius", "distance_m": int(dist)}
+    await db.time_entries.update_one(
+        {"id": open_entry["id"]},
+        {"$set": {"last_seen": now, "last_lat": data.lat, "last_lng": data.lng}},
+    )
+    return {"clocked_in": True, "distance_m": int(dist) if dist is not None else None}
 
 
 @api_router.get("/timeclock/status")
@@ -1421,6 +1462,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 async def startup():
+    app.state.checkout_task = asyncio.create_task(auto_checkout_worker())
     # 1. Cargos de sistema (protegidos, controlo total). Administrador (topo) > Dono/a.
     async def ensure_system_role(name: str, rank: int) -> dict:
         role = await db.roles.find_one({"name": name})
@@ -1549,4 +1591,45 @@ app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    task = getattr(app.state, "checkout_task", None)
+    if task:
+        task.cancel()
     client.close()
+
+
+async def auto_checkout_worker():
+    """Fecha pontos abertos sem heartbeat há mais de AUTO_CHECKOUT_GRACE_SECONDS (app fechada / sem GPS)."""
+    while True:
+        try:
+            await asyncio.sleep(60)
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=AUTO_CHECKOUT_GRACE_SECONDS)
+            open_entries = await db.time_entries.find({"clock_out": None}).to_list(1000)
+            for e in open_entries:
+                last = e.get("last_seen") or e.get("clock_in")
+                try:
+                    last_dt = datetime.fromisoformat(last)
+                except Exception:
+                    continue
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                if last_dt < cutoff:
+                    out = last
+                    try:
+                        seconds = (datetime.fromisoformat(out) - datetime.fromisoformat(e["clock_in"])).total_seconds()
+                    except Exception:
+                        seconds = 0
+                    await db.time_entries.update_one(
+                        {"id": e["id"]},
+                        {"$set": {
+                            "clock_out": out,
+                            "clock_out_lat": e.get("last_lat"),
+                            "clock_out_lng": e.get("last_lng"),
+                            "duration_seconds": max(0, seconds),
+                            "auto_checkout": True,
+                            "checkout_reason": "no_signal",
+                        }},
+                    )
+        except asyncio.CancelledError:
+            break
+        except Exception as ex:
+            logger.exception("auto_checkout_worker: %s", ex)

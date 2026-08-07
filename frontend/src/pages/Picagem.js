@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import api, { formatApiError } from "@/lib/api";
 import { PageHeader } from "@/components/Layout";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { MapPin, LogIn, LogOut, CheckCircle2, XCircle } from "lucide-react";
+import { MapPin, LogIn, LogOut, CheckCircle2, XCircle, Wifi } from "lucide-react";
 
 function fmtDuration(s) {
   if (!s) return "—";
@@ -11,6 +11,12 @@ function fmtDuration(s) {
   const m = Math.floor((s % 3600) / 60);
   return `${h}h ${m}m`;
 }
+
+const REASON_LABEL = {
+  out_of_radius: "saída automática — saiu da área",
+  no_signal: "saída automática — sem sinal",
+  manual: "saída manual",
+};
 
 export default function Picagem() {
   const { user } = useAuth();
@@ -20,6 +26,7 @@ export default function Picagem() {
   const [entries, setEntries] = useState([]);
   const [locating, setLocating] = useState(false);
   const [geoState, setGeoState] = useState("idle"); // idle | ok | error
+  const [tracking, setTracking] = useState(false);
 
   const load = useCallback(() => {
     api.get("/timeclock/status").then((r) => setStatus(r.data));
@@ -27,6 +34,8 @@ export default function Picagem() {
     api.get("/settings").then((r) => setSettings(r.data));
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const clockedIn = status?.clocked_in;
 
   const punch = () => {
     setLocating(true);
@@ -59,7 +68,56 @@ export default function Picagem() {
     );
   };
 
-  const clockedIn = status?.clocked_in;
+  // Seguimento contínuo da localização enquanto em serviço → fecho automático ao sair do raio.
+  useEffect(() => {
+    if (!clockedIn || !navigator.geolocation) { setTracking(false); return; }
+    setTracking(true);
+    let lastPos = null;
+    let stopped = false;
+
+    const sendBeat = async (lat, lng) => {
+      try {
+        const { data } = await api.post("/timeclock/heartbeat", { lat, lng });
+        if (data.clocked_in === false) {
+          stopped = true;
+          const msg = data.reason === "out_of_radius"
+            ? "Saída automática — saiu da área do restaurante"
+            : "Sessão de ponto terminada";
+          toast.warning(msg);
+          load();
+        }
+      } catch (e) { /* ignora falhas transitórias */ }
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => { lastPos = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+      () => { /* sem sinal — servidor fecha por no_signal após período de tolerância */ },
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+    );
+
+    const tick = async () => {
+      if (stopped) return;
+      if (lastPos) {
+        await sendBeat(lastPos.lat, lastPos.lng);
+      } else {
+        // Sem posição: confirma no servidor se já foi fechado por falta de sinal.
+        try {
+          const { data } = await api.get("/timeclock/status");
+          if (!data.clocked_in) { stopped = true; toast.warning("Saída automática registada (sem sinal)"); load(); }
+        } catch (e) { /* ignora */ }
+      }
+    };
+
+    const kick = setTimeout(tick, 3000);
+    const interval = setInterval(tick, 45000);
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      clearTimeout(kick);
+      clearInterval(interval);
+      setTracking(false);
+    };
+  }, [clockedIn, load]);
 
   const renderCenterIcon = () => {
     if (geoState === "ok") return <CheckCircle2 className="w-16 h-16 text-primary" />;
@@ -81,7 +139,7 @@ export default function Picagem() {
             <>
               <div className="relative w-52 h-52 mb-8">
                 <div className="absolute inset-0 rounded-full border-2 border-primary/30" />
-                <div className={`absolute inset-0 rounded-full border-2 ${clockedIn ? "border-destructive/40" : "border-primary/40"} ${locating ? "pulse-ring" : ""}`} />
+                <div className={`absolute inset-0 rounded-full border-2 ${clockedIn ? "border-destructive/40" : "border-primary/40"} ${(locating || tracking) ? "pulse-ring" : ""}`} />
                 <div className="absolute inset-8 rounded-full border border-border" />
                 {locating && (
                   <div className="absolute inset-0 rounded-full overflow-hidden radar-sweep"
@@ -106,7 +164,12 @@ export default function Picagem() {
                 {clockedIn ? <LogOut className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
                 {locating ? "A validar localização..." : clockedIn ? "Picar Saída" : "Picar Entrada"}
               </button>
-              <p className="text-xs text-muted-foreground mt-4 mono">
+              {clockedIn && tracking && (
+                <div data-testid="geofence-tracking" className="flex items-center gap-1.5 text-xs text-primary mt-4">
+                  <Wifi className="w-3.5 h-3.5" /> A monitorizar localização — sai automaticamente ao deixar a área
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground mt-3 mono">
                 Raio permitido: {settings.radius_m}m · {settings.restaurant_name}
               </p>
             </>
@@ -123,11 +186,19 @@ export default function Picagem() {
                   <div className="mono text-xs text-muted-foreground">
                     {new Date(e.clock_in).toLocaleString("pt-PT")}
                   </div>
+                  {e.clock_out && (
+                    <div className="mono text-[0.65rem] text-muted-foreground mt-0.5">
+                      {e.auto_checkout ? "⚠ " : ""}{REASON_LABEL[e.checkout_reason] || (e.auto_checkout ? "saída automática" : "saída")}
+                    </div>
+                  )}
                 </div>
-                <div className="text-right">
+                <div className="text-right flex flex-col items-end gap-1">
                   <span className={`text-xs px-2 py-0.5 font-semibold ${e.clock_out ? "bg-secondary" : "bg-primary text-primary-foreground"}`}>
                     {e.clock_out ? fmtDuration(e.duration_seconds) : "ativo"}
                   </span>
+                  {e.auto_checkout && (
+                    <span data-testid={`auto-badge-${e.id}`} className="text-[0.6rem] px-1.5 py-0.5 bg-accent/20 text-accent-foreground label-tech" style={{ letterSpacing: "0.08em" }}>auto</span>
+                  )}
                 </div>
               </div>
             ))}

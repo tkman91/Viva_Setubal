@@ -84,6 +84,14 @@
 - Frontend (`Staff.js`): dropdown de cargo mostra apenas cargos ≤ rank do próprio; botões Gerir/Eliminar escondidos para contas de rank superior.
 - Verificado por curl: Dono is_admin+controlo total; Dono→apagar cargo/conta Administrador = 403; Dono→atribuir Administrador = 403; Administrador→apagar Dono = 200.
 
+## Picagem — fecho automático por geolocalização (2026-08-07)
+- **Entrada manual** (botão, dentro do raio, como antes). **Saída automática ao sair do raio**: enquanto em serviço, a app segue a localização (`watchPosition`) e envia heartbeats.
+- Novo endpoint `POST /api/timeclock/heartbeat {lat,lng}`: se estiver fora do raio fecha o ponto (`auto_checkout=true`, `checkout_reason="out_of_radius"`); dentro do raio atualiza `last_seen`/`last_lat/lng`.
+- **Sem sinal / app fechada**: worker em segundo plano (`auto_checkout_worker`, corre a cada 60s) fecha pontos sem heartbeat há > `AUTO_CHECKOUT_GRACE_SECONDS` (**5 min**), com `checkout_reason="no_signal"`, usando a última posição/hora conhecida como saída.
+- Saídas manuais ficam com `checkout_reason="manual"`, `auto_checkout=false`.
+- Frontend (`Picagem.js`): indicador "A monitorizar localização", intervalo de heartbeat a 45s, aviso de saída automática e **badge "auto"** + motivo no histórico.
+- Verificado: heartbeat fora do raio a 1412m → fecho `out_of_radius`; entrada obsoleta (10 min) → worker fechou como `no_signal` na última posição. Frontend renderiza e compila.
+
 ## Backlog / próximos passos
 - P1: Integração real de faturação (InvoiceXpress/Moloni) — atualmente sync é simulado.
 - P1: Relatórios (módulo "relatorios") — horas trabalhadas por funcionário + custo salarial, exportação.
