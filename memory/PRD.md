@@ -92,6 +92,13 @@
 - Frontend (`Picagem.js`): indicador "A monitorizar localização", intervalo de heartbeat a 45s, aviso de saída automática e **badge "auto"** + motivo no histórico.
 - Verificado: heartbeat fora do raio a 1412m → fecho `out_of_radius`; entrada obsoleta (10 min) → worker fechou como `no_signal` na última posição. Frontend renderiza e compila.
 
+## Picagem em separadores: Horário + Correção (2026-08-07, parte 2)
+- Página Picagem organizada em 3 separadores: **Picar Ponto** (todos com módulo picagem), **Horário** e **Correção de Picagens** (só gestores/supervisores + Administrador/Dono). Extraído para `components/picagem/{PunchPanel,HorarioTab,CorrecaoTab}.js`.
+- **Horário semanal** (coleção `schedules`): por funcionário e dia da semana (Seg–Dom) com hora de entrada/saída ou Folga. `GET/PUT /api/schedules` (require_manage picagem).
+- **Cumprimento** (`GET /api/schedules/compliance?date=`): compara o turno com a 1ª picagem do dia (fuso Europe/Lisbon) e assinala **Presente / Atraso (+min, tolerância 5m) / Falta**.
+- **Correção** (`PUT /api/timeclock/entries/{id}`, require_manage): fechar ponto aberto e editar horas (entrada/saída); valida saída ≥ entrada; converte hora local→UTC; marca `checkout_reason="correction"`. `DELETE /api/timeclock/entries/{id}` **só para cargos de sistema** (`is_system` — Administrador/Dono).
+- `enrich_role` passa a expor `is_system`. Verificado por curl: schedule PUT/compliance OK; correção fecha/edita com duração correta; saída<entrada→400; delete por admin(is_system)→200, por não-sistema→403.
+
 ## Backlog / próximos passos
 - P1: Integração real de faturação (InvoiceXpress/Moloni) — atualmente sync é simulado.
 - P1: Relatórios (módulo "relatorios") — horas trabalhadas por funcionário + custo salarial, exportação.
