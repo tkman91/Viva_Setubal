@@ -8,12 +8,13 @@ import { Plus, Trash2, Pencil, X, UtensilsCrossed } from "lucide-react";
 const field = "w-full px-3 py-2 bg-background border border-input focus:outline-none focus:ring-2 focus:ring-primary text-sm";
 const btnPrimary = "px-4 py-2 bg-primary text-primary-foreground font-semibold text-sm hover:translate-y-[-1px] active:scale-[0.98] transition-transform duration-150";
 
-const empty = { name: "", price: 0, vat_rate: 23, items: [], active: true };
+const empty = { name: "", price: 0, vat_rate: 23, category_id: "", items: [], active: true };
 
 export default function MenusCombos() {
   const [config, setConfig] = useState(null);
   const [combos, setCombos] = useState([]);
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
@@ -21,14 +22,14 @@ export default function MenusCombos() {
 
   const m = (v) => fmtMoney(v, config);
   const load = useCallback(async () => {
-    const [c, p, cfg] = await Promise.all([api.get("/pos/combos"), api.get("/products"), api.get("/pos/config")]);
-    setCombos(c.data); setProducts(p.data); setConfig(cfg.data);
+    const [c, p, cfg, cat] = await Promise.all([api.get("/pos/combos"), api.get("/products"), api.get("/pos/config"), api.get("/pos/categories")]);
+    setCombos(c.data); setProducts(p.data); setConfig(cfg.data); setCategories(cat.data);
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const pname = (id) => products.find((p) => p.id === id)?.name || id;
   const openNew = () => { setEditing(null); setForm(empty); setPick({ product_id: "", quantity: 1 }); setOpen(true); };
-  const openEdit = (c) => { setEditing(c); setForm({ name: c.name, price: c.price, vat_rate: c.vat_rate, items: (c.items || []).map((i) => ({ ...i })), active: c.active !== false }); setPick({ product_id: "", quantity: 1 }); setOpen(true); };
+  const openEdit = (c) => { setEditing(c); setForm({ name: c.name, price: c.price, vat_rate: c.vat_rate, category_id: c.category_id || "", items: (c.items || []).map((i) => ({ ...i })), active: c.active !== false }); setPick({ product_id: "", quantity: 1 }); setOpen(true); };
 
   const addItem = () => { if (!pick.product_id) return; setForm((f) => ({ ...f, items: [...f.items, { product_id: pick.product_id, quantity: Number(pick.quantity) || 1 }] })); setPick({ product_id: "", quantity: 1 }); };
   const rmItem = (i) => setForm((f) => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
@@ -95,6 +96,13 @@ export default function MenusCombos() {
                   {[23, 13, 6, 0].map((r) => <option key={r} value={r}>{r}%</option>)}
                 </select>
               </div>
+            </div>
+            <div>
+              <label className="label-tech block mb-1">Categoria (opcional)</label>
+              <select data-testid="select-combo-category" className={field} value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}>
+                <option value="">Sem categoria</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
             <div className="border-t border-border pt-2">
               <div className="label-tech mb-1">Componentes (descontam stock)</div>

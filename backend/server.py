@@ -338,6 +338,7 @@ class ComboInput(BaseModel):
     name: str
     price: float = 0.0
     vat_rate: float = 23.0
+    category_id: Optional[str] = None
     items: List[ComboItem] = Field(default_factory=list)
     active: bool = True
 

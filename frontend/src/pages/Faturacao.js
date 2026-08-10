@@ -15,6 +15,8 @@ export default function Registadora() {
   const [zones, setZones] = useState([]);
   const [tables, setTables] = useState([]);
   const [combos, setCombos] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [activeCat, setActiveCat] = useState("all");
   const [openOrders, setOpenOrders] = useState([]);
   const [activeZone, setActiveZone] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -34,12 +36,12 @@ export default function Registadora() {
 
   useEffect(() => {
     (async () => {
-      const [cfg, z, t, c, o] = await Promise.all([
+      const [cfg, z, t, c, cat, o] = await Promise.all([
         api.get("/pos/config"), api.get("/pos/zones"), api.get("/pos/tables"),
-        api.get("/pos/combos"), api.get("/orders?status=aberta"),
+        api.get("/pos/combos"), api.get("/pos/categories"), api.get("/orders?status=aberta"),
       ]);
       setConfig(cfg.data); setZones(z.data); setTables(t.data);
-      setCombos(c.data.filter((x) => x.active !== false)); setOpenOrders(o.data);
+      setCombos(c.data.filter((x) => x.active !== false)); setCategories(cat.data); setOpenOrders(o.data);
     })().catch(() => toast.error("Falha ao carregar POS"));
   }, []);
 
@@ -197,11 +199,16 @@ export default function Registadora() {
           <div className="grid grid-cols-1 lg:grid-cols-2 h-[92vh]">
             {/* Menus & Combos */}
             <div className="border-r border-border flex flex-col min-h-0">
-              <div className="p-4 border-b border-border label-tech">Menus & Combos</div>
+              <div className="p-4 border-b border-border flex flex-wrap gap-1">
+                <button data-testid="combo-cat-all" onClick={() => setActiveCat("all")} className={`px-3 py-1.5 text-xs font-semibold border ${activeCat === "all" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}>Todos</button>
+                {categories.map((c) => (
+                  <button key={c.id} data-testid={`combo-cat-${c.id}`} onClick={() => setActiveCat(c.id)} className={`px-3 py-1.5 text-xs font-semibold border ${activeCat === c.id ? "text-white border-transparent" : "border-border"}`} style={activeCat === c.id ? { backgroundColor: c.color } : {}}>{c.name}</button>
+                ))}
+              </div>
               <div className="flex-1 overflow-y-auto p-4">
                 {combos.length === 0 && <p className="text-sm text-muted-foreground">Sem menus criados. Crie em <span className="font-semibold">Menus &amp; Combos</span>.</p>}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-                  {combos.map((c) => (
+                  {combos.filter((c) => activeCat === "all" || c.category_id === activeCat).map((c) => (
                     <button key={c.id} data-testid={`pos-combo-${c.id}`} onClick={() => addCombo(c)} className="border border-primary p-3 text-left hover:bg-secondary transition-colors duration-150">
                       <div className="text-sm font-semibold leading-tight">{c.name}</div>
                       <div className="mono text-xs mt-1">{m(c.price)}</div>

@@ -113,6 +113,12 @@
 - **Registadora** passa a vender **apenas os menus/combos** criados (removida a grelha de produtos de stock em bruto e os filtros de categoria/modificadores da venda). Stock continua a ser gerido só no separador Controlo de Stock.
 - Verificado por curl: `menus` nas permissões do admin; criar/editar/eliminar combo 200. Frontend compila.
 
+## Categorias nos Menus/Combos (2026-08-10)
+- `ComboInput` passa a ter `category_id` (opcional, reutiliza `pos_categories` de Config POS → Categorias).
+- Página **Menus & Combos**: seletor de categoria no diálogo + etiqueta da categoria no cartão.
+- **Registadora**: barra de separadores por categoria (Todos + categorias) que filtra os menus/combos, para encontrar mais depressa quando há muitos.
+- Verificado por curl: `category_id` guarda e persiste na criação/listagem de combos; frontend compila.
+
 ## Backlog / próximos passos
 - P1: Integração real de faturação (InvoiceXpress/Moloni) — atualmente sync é simulado.
 - P1: Relatórios (módulo "relatorios") — horas trabalhadas por funcionário + custo salarial, exportação.
