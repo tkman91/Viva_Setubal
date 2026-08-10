@@ -11,6 +11,7 @@ const MODULES = [
   { key: "consumo", label: "Consumo" },
   { key: "staff", label: "Staff" },
   { key: "faturacao", label: "Registadora" },
+  { key: "menus", label: "Menus & Combos" },
   { key: "relatorios", label: "Relatórios" },
 ];
 const field = "w-full px-3 py-2 bg-background border border-input focus:outline-none focus:ring-2 focus:ring-primary text-sm";

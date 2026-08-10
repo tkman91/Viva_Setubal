@@ -14,6 +14,7 @@ import Faturacao from "@/pages/Faturacao";
 import POSConfig from "@/pages/POSConfig";
 import Relatorios from "@/pages/Relatorios";
 import Cargos from "@/pages/Cargos";
+import MenusCombos from "@/pages/MenusCombos";
 import Settings from "@/pages/Settings";
 
 function Protected({ children, module }) {
@@ -44,6 +45,7 @@ function AppRoutes() {
       <Route path="/consumo" element={<Protected module="consumo"><Consumo /></Protected>} />
       <Route path="/staff" element={<Protected module="staff"><Staff /></Protected>} />
       <Route path="/cargos" element={<Protected module="settings"><Cargos /></Protected>} />
+      <Route path="/menus" element={<Protected module="menus"><MenusCombos /></Protected>} />
       <Route path="/faturacao" element={<Protected module="faturacao"><Faturacao /></Protected>} />
       <Route path="/relatorios" element={<Protected module="relatorios"><Relatorios /></Protected>} />
       <Route path="/config-pos" element={<Protected module="settings"><POSConfig /></Protected>} />

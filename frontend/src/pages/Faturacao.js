@@ -4,7 +4,6 @@ import { PageHeader } from "@/components/Layout";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Trash2, Table2, Utensils, Printer, Percent, ConciergeBell, FileText, Download, RotateCcw } from "lucide-react";
-import ModifierPicker from "@/components/pos/ModifierPicker";
 import PaymentDialog from "@/components/pos/PaymentDialog";
 import { printReceipt } from "@/components/pos/receipt";
 
@@ -15,18 +14,13 @@ export default function Registadora() {
   const [config, setConfig] = useState(null);
   const [zones, setZones] = useState([]);
   const [tables, setTables] = useState([]);
-  const [products, setProducts] = useState([]);
   const [combos, setCombos] = useState([]);
-  const [groups, setGroups] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
   const [activeZone, setActiveZone] = useState("all");
   const [selected, setSelected] = useState(null);
-  const [modProduct, setModProduct] = useState(null);
   const [payOpen, setPayOpen] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [walkName, setWalkName] = useState("");
-  const [activeCat, setActiveCat] = useState("all");
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
 
@@ -40,14 +34,12 @@ export default function Registadora() {
 
   useEffect(() => {
     (async () => {
-      const [cfg, z, t, p, c, g, cat, o] = await Promise.all([
+      const [cfg, z, t, c, o] = await Promise.all([
         api.get("/pos/config"), api.get("/pos/zones"), api.get("/pos/tables"),
-        api.get("/products"), api.get("/pos/combos"), api.get("/pos/modifier-groups"),
-        api.get("/pos/categories"), api.get("/orders?status=aberta"),
+        api.get("/pos/combos"), api.get("/orders?status=aberta"),
       ]);
-      setConfig(cfg.data); setZones(z.data); setTables(t.data); setProducts(p.data);
-      setCombos(c.data.filter((x) => x.active !== false)); setGroups(g.data);
-      setCategories(cat.data); setOpenOrders(o.data);
+      setConfig(cfg.data); setZones(z.data); setTables(t.data);
+      setCombos(c.data.filter((x) => x.active !== false)); setOpenOrders(o.data);
     })().catch(() => toast.error("Falha ao carregar POS"));
   }, []);
 
@@ -78,11 +70,6 @@ export default function Registadora() {
   const refresh = async (id) => {
     const list = await loadOrders();
     setSelected(list.find((x) => x.id === id) || null);
-  };
-
-  const addProduct = async (product) => {
-    if ((product.modifier_group_ids || []).length > 0) { setModProduct(product); return; }
-    await doAdd({ kind: "product", ref_id: product.id, quantity: 1 });
   };
 
   const doAdd = async (payload) => {
@@ -143,7 +130,6 @@ export default function Registadora() {
   };
 
   const shownTables = tables.filter((t) => activeZone === "all" || t.zone_id === activeZone);
-  const shownProducts = products.filter((p) => activeCat === "all" || p.category_id === activeCat);
   const lastOrder = openOrders.find((o) => o.id === (typeof window !== "undefined" ? localStorage.getItem("vs_last_order") : null));
 
   if (!config) return <div className="p-4 sm:p-8 text-muted-foreground">A carregar...</div>;
@@ -209,38 +195,19 @@ export default function Registadora() {
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <DialogContent className="rounded-none max-w-5xl max-h-[92vh] overflow-hidden p-0">
           <div className="grid grid-cols-1 lg:grid-cols-2 h-[92vh]">
-            {/* Menu */}
+            {/* Menus & Combos */}
             <div className="border-r border-border flex flex-col min-h-0">
-              <div className="p-4 border-b border-border flex flex-wrap gap-1">
-                <button onClick={() => setActiveCat("all")} className={`px-3 py-1.5 text-xs font-semibold border ${activeCat === "all" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}>Todos</button>
-                {categories.map((c) => (
-                  <button key={c.id} data-testid={`cat-${c.id}`} onClick={() => setActiveCat(c.id)} className={`px-3 py-1.5 text-xs font-semibold border ${activeCat === c.id ? "text-white border-transparent" : "border-border"}`} style={activeCat === c.id ? { backgroundColor: c.color } : {}}>{c.name}</button>
-                ))}
-              </div>
+              <div className="p-4 border-b border-border label-tech">Menus & Combos</div>
               <div className="flex-1 overflow-y-auto p-4">
+                {combos.length === 0 && <p className="text-sm text-muted-foreground">Sem menus criados. Crie em <span className="font-semibold">Menus &amp; Combos</span>.</p>}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-                  {shownProducts.map((p) => (
-                    <button key={p.id} data-testid={`pos-product-${p.id}`} disabled={p.track_stock !== false && p.quantity <= 0} onClick={() => addProduct(p)}
-                      className="border border-border p-3 text-left hover:bg-secondary transition-colors duration-150 disabled:opacity-40">
-                      <div className="text-sm font-semibold leading-tight">{p.name}</div>
-                      <div className="mono text-xs mt-1">{m(p.sale_price)}</div>
-                      {p.track_stock !== false && <div className="label-tech" style={{ fontSize: "0.55rem" }}>stock {num(p.quantity)}</div>}
+                  {combos.map((c) => (
+                    <button key={c.id} data-testid={`pos-combo-${c.id}`} onClick={() => addCombo(c)} className="border border-primary p-3 text-left hover:bg-secondary transition-colors duration-150">
+                      <div className="text-sm font-semibold leading-tight">{c.name}</div>
+                      <div className="mono text-xs mt-1">{m(c.price)}</div>
                     </button>
                   ))}
                 </div>
-                {combos.length > 0 && (
-                  <>
-                    <div className="label-tech mt-4 mb-2">Menus / Combos</div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-                      {combos.map((c) => (
-                        <button key={c.id} data-testid={`pos-combo-${c.id}`} onClick={() => addCombo(c)} className="border border-primary p-3 text-left hover:bg-secondary transition-colors duration-150">
-                          <div className="text-sm font-semibold leading-tight">{c.name}</div>
-                          <div className="mono text-xs mt-1">{m(c.price)}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
               </div>
             </div>
 
@@ -312,12 +279,6 @@ export default function Registadora() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {modProduct && (
-        <ModifierPicker product={modProduct} groups={groups} config={config}
-          onConfirm={({ modifiers, quantity }) => { doAdd({ kind: "product", ref_id: modProduct.id, quantity, modifiers }); setModProduct(null); }}
-          onClose={() => setModProduct(null)} />
-      )}
 
       {payOpen && selected && (
         <PaymentDialog order={selected} config={config} onConfirm={confirmPayment} onClose={() => setPayOpen(false)} />

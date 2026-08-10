@@ -106,6 +106,13 @@
 - **Tempos configuráveis** em Definições: `late_tolerance_min` e `no_signal_minutes` (antes fixos em 5). Usados por compliance, _check_late_on_entry, _detect_faltas e auto_checkout_worker.
 - Testado: backend 8/8 pytest + frontend 4/4 fluxos + regressão (100%). Tester corrigiu NameError latente de `tol` em schedule_compliance.
 
+## Registadora: Menus & Combos como página própria (2026-08-07, parte 4)
+- Novo módulo de permissão **`menus`** (configurável por cargo). Administrador/Dono têm acesso total automático.
+- Nova página **`/menus` "Menus & Combos"** (estilo Cargos): CRUD completo de combos (nome, preço, IVA, componentes que descontam stock, ativo). Endpoints `POST/PUT/DELETE /api/pos/combos` passaram de `require_admin` para `require_permission("menus")`.
+- Gestão de menus/combos **removida do Config POS** (separador "Menus/Combos" retirado).
+- **Registadora** passa a vender **apenas os menus/combos** criados (removida a grelha de produtos de stock em bruto e os filtros de categoria/modificadores da venda). Stock continua a ser gerido só no separador Controlo de Stock.
+- Verificado por curl: `menus` nas permissões do admin; criar/editar/eliminar combo 200. Frontend compila.
+
 ## Backlog / próximos passos
 - P1: Integração real de faturação (InvoiceXpress/Moloni) — atualmente sync é simulado.
 - P1: Relatórios (módulo "relatorios") — horas trabalhadas por funcionário + custo salarial, exportação.

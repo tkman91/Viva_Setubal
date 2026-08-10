@@ -31,6 +31,7 @@ const NAV = [
   { to: "/staff", label: "Gestão de Staff", icon: Users, module: "staff" },
   { to: "/cargos", label: "Cargos", icon: ShieldCheck, module: "settings" },
   { to: "/faturacao", label: "Registadora", icon: Receipt, module: "faturacao" },
+  { to: "/menus", label: "Menus & Combos", icon: UtensilsCrossed, module: "menus" },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3, module: "relatorios" },
   { to: "/config-pos", label: "Config POS", icon: SlidersHorizontal, module: "settings" },
   { to: "/definicoes", label: "Definições", icon: Settings, module: "settings" },

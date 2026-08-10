@@ -46,7 +46,7 @@ if COOKIE_SAMESITE == "none":
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("restaurante")
 
-MODULES = ["stock", "picagem", "staff", "consumo", "faturacao", "relatorios"]
+MODULES = ["stock", "picagem", "staff", "consumo", "faturacao", "relatorios", "menus"]
 
 # Fecho automático de ponto: se não houver sinal (heartbeat) durante este tempo, fecha por "no_signal".
 AUTO_CHECKOUT_GRACE_SECONDS = 300  # 5 minutos
@@ -1241,20 +1241,20 @@ async def list_combos(user: dict = Depends(get_current_user)):
 
 
 @api_router.post("/pos/combos")
-async def create_combo(data: ComboInput, user: dict = Depends(require_admin)):
+async def create_combo(data: ComboInput, user: dict = Depends(require_permission("menus"))):
     doc = {"id": str(uuid.uuid4()), **data.model_dump()}
     await db.pos_combos.insert_one(doc)
     return clean(dict(doc))
 
 
 @api_router.put("/pos/combos/{combo_id}")
-async def update_combo(combo_id: str, data: ComboInput, user: dict = Depends(require_admin)):
+async def update_combo(combo_id: str, data: ComboInput, user: dict = Depends(require_permission("menus"))):
     await db.pos_combos.update_one({"id": combo_id}, {"$set": data.model_dump()})
     return await db.pos_combos.find_one({"id": combo_id}, {"_id": 0})
 
 
 @api_router.delete("/pos/combos/{combo_id}")
-async def delete_combo(combo_id: str, user: dict = Depends(require_admin)):
+async def delete_combo(combo_id: str, user: dict = Depends(require_permission("menus"))):
     await db.pos_combos.delete_one({"id": combo_id})
     return {"ok": True}
 
